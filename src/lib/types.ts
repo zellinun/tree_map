@@ -18,6 +18,7 @@ export type TreePin = {
   quantity: number;
   description: string | null;
   color: string;
+  photos: string[];
   created_at: string;
 };
 

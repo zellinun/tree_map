@@ -7,8 +7,11 @@ const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string;
 
 const MAP_CONTAINER_STYLE = { width: "100%", height: "100%" };
 
-function zoomScale(zoom: number): number {
-  return Math.max(0.4, Math.min(1.2, (zoom - 14) / 5));
+function pinSizeForZoom(zoom: number): number {
+  if (zoom >= 19) return 18;
+  if (zoom >= 17) return 22;
+  if (zoom >= 15) return 26;
+  return 30;
 }
 
 // Adapter so ProjectMapPage can call map.getCenter() / map.getZoom()
@@ -32,16 +35,15 @@ type Props = {
 
 function PinMarker({
   pin,
-  scale,
+  size,
   onClick,
 }: {
   pin: TreePin;
-  scale: number;
+  size: number;
   onClick?: (pin: TreePin) => void;
 }) {
   const color = pin.color || DEFAULT_PIN_COLOR;
-  const size = Math.round(32 * scale);
-  const fontSize = Math.round(13 * scale);
+  const fontSize = Math.round(size * 0.55);
   return (
     <OverlayView
       position={{ lat: pin.latitude, lng: pin.longitude }}
@@ -55,13 +57,13 @@ function PinMarker({
           height: size,
           borderRadius: "50%",
           background: color,
-          border: `${Math.max(1.5, 2 * scale)}px solid #fff`,
+          border: "2px solid #fff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: "#fff",
           fontWeight: 700,
-          fontSize: fontSize,
+          fontSize,
           cursor: onClick ? "pointer" : "default",
           boxShadow: "0 2px 6px rgba(0,0,0,0.5)",
           userSelect: "none",
@@ -91,7 +93,7 @@ export default function MapView({
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const prevFitTrigger = useRef<number | undefined>(undefined);
-  const [pinScale, setPinScale] = useState(1);
+  const [pinSize, setPinSize] = useState(() => pinSizeForZoom(zoom));
   const [mapCenter] = useState<google.maps.LatLngLiteral>({
     lat: center[0],
     lng: center[1],
@@ -123,9 +125,9 @@ export default function MapView({
       // Zoom-responsive marker sizing
       map.addListener("zoom_changed", () => {
         const z = map.getZoom() ?? zoom;
-        setPinScale(zoomScale(z));
+        setPinSize(pinSizeForZoom(z));
       });
-      setPinScale(zoomScale(map.getZoom() ?? zoom));
+      setPinSize(pinSizeForZoom(map.getZoom() ?? zoom));
 
       // Non-interactive mode for report embed
       if (!interactive) {
@@ -197,7 +199,7 @@ export default function MapView({
         <PinMarker
           key={pin.id}
           pin={pin}
-          scale={pinScale}
+          size={pinSize}
           onClick={onPinTap}
         />
       ))}

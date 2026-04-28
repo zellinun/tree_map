@@ -24,6 +24,7 @@ create table if not exists tree_pins (
   quantity int not null default 1,
   description text,
   color text not null default '#15803D',
+  photos text[] not null default '{}',
   created_at timestamptz not null default now()
 );
 
@@ -33,6 +34,9 @@ create index if not exists tree_pins_project_id_idx
 -- Idempotent column add for repos that ran an earlier version of this schema.
 alter table tree_pins
   add column if not exists color text not null default '#15803D';
+
+alter table tree_pins
+  add column if not exists photos text[] not null default '{}';
 
 alter table tree_projects enable row level security;
 alter table tree_pins enable row level security;

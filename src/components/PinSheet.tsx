@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Trash2, X } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { TreePin } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
 import { DEFAULT_PIN_COLOR, PIN_COLORS } from "@/lib/colors";
 
 export type PinDraft = {
@@ -51,6 +52,9 @@ export default function PinSheet({
   const [description, setDescription] = useState("");
   const [color, setColor] = useState<string>(DEFAULT_PIN_COLOR);
   const [saving, setSaving] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (pin) {
@@ -58,16 +62,19 @@ export default function PinSheet({
       setQuantity(String(pin.quantity ?? 1));
       setDescription(pin.description ?? "");
       setColor(pin.color || DEFAULT_PIN_COLOR);
+      setPhotos(pin.photos ?? []);
     } else if (draft) {
       setSpecies(draft.species_name ?? "");
       setQuantity(String(draft.quantity ?? 1));
       setDescription(draft.description ?? "");
       setColor(draft.color || DEFAULT_PIN_COLOR);
+      setPhotos([]);
     } else {
       setSpecies("");
       setQuantity("1");
       setDescription("");
       setColor(DEFAULT_PIN_COLOR);
+      setPhotos([]);
     }
   }, [pin, draft, open]);
 
@@ -80,6 +87,41 @@ export default function PinSheet({
     const n = Math.floor(Number(raw));
     if (!Number.isFinite(n) || n < 1) return 1;
     return n;
+  };
+
+  const projectId = pin?.project_id ?? "";
+  const pinId = pin?.id ?? "";
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !pinId) return;
+    setUploading(true);
+    try {
+      const uuid = crypto.randomUUID();
+      const path = `${projectId}/${pinId}/${uuid}.jpg`;
+      const { error: uploadErr } = await supabase.storage
+        .from("tree_photos")
+        .upload(path, file, { contentType: file.type });
+      if (uploadErr) throw uploadErr;
+      const { data: urlData } = supabase.storage
+        .from("tree_photos")
+        .getPublicUrl(path);
+      const newPhotos = [...photos, urlData.publicUrl];
+      setPhotos(newPhotos);
+      await onUpdate(pinId, { photos: newPhotos });
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removePhoto = async (url: string) => {
+    if (!pinId) return;
+    const newPhotos = photos.filter((p) => p !== url);
+    setPhotos(newPhotos);
+    await onUpdate(pinId, { photos: newPhotos });
   };
 
   const save = async () => {
@@ -201,6 +243,47 @@ export default function PinSheet({
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
+          {pin && (
+            <div className="space-y-2">
+              <Label>Photos</Label>
+              <div className="flex flex-wrap gap-2">
+                {photos.map((url) => (
+                  <div key={url} className="relative h-16 w-16">
+                    <img
+                      src={url}
+                      alt=""
+                      className="h-full w-full rounded-md border border-ink/10 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(url)}
+                      className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handlePhotoUpload}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Camera className="mr-1 h-4 w-4" />
+                {uploading ? "Uploading…" : "Add Photo"}
+              </Button>
+            </div>
+          )}
         </div>
         <DrawerFooter>
           <Button

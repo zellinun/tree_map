@@ -16,12 +16,6 @@ import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
 import { DEFAULT_PIN_COLOR, type PinPreset } from "@/lib/colors";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
-const PIN_HIGH_ACCURACY: PositionOptions = {
-  enableHighAccuracy: true,
-  maximumAge: 5_000,
-  timeout: 15_000,
-};
-
 type View = "map" | "list";
 
 export default function ProjectMapPage() {
@@ -127,6 +121,7 @@ export default function ProjectMapPage() {
       quantity: p.quantity,
       description: p.description,
       color: p.color || DEFAULT_PIN_COLOR,
+      photos: [],
       created_at: new Date().toISOString(),
     }));
     return [...pins, ...pendingAsPins].sort(
@@ -169,24 +164,55 @@ export default function ProjectMapPage() {
     [openDraft]
   );
 
-  // "Locate me" button: recenter the map on the user's current GPS position.
+  // "Locate me" button: use watchPosition to get the best reading.
+  // Accept first reading under 30 m accuracy, or best after 5 s.
   const handleLocateMe = useCallback(() => {
     if (!navigator.geolocation) {
       setError("Geolocation is not available in this browser.");
       return;
     }
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
+
+    let best: GeolocationPosition | null = null;
+    let settled = false;
+
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      navigator.geolocation.clearWatch(watchId);
+      setLocating(false);
+      if (best) {
+        setFlyTo([best.coords.latitude, best.coords.longitude]);
+      } else {
+        setError("Could not get current position.");
+      }
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        setLocating(false);
-        setFlyTo([pos.coords.latitude, pos.coords.longitude]);
+        if (settled) return;
+        if (!best || pos.coords.accuracy < best.coords.accuracy) {
+          best = pos;
+        }
+        if (pos.coords.accuracy <= 30) settle();
       },
       (err) => {
-        setLocating(false);
-        setError(err.message || "Could not get current position.");
+        if (settled) return;
+        // If we already have a reading, use it; otherwise report error.
+        if (best) {
+          settle();
+        } else {
+          settled = true;
+          navigator.geolocation.clearWatch(watchId);
+          setLocating(false);
+          setError(err.message || "Could not get current position.");
+        }
       },
-      PIN_HIGH_ACCURACY
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 }
     );
+
+    // Fallback: after 5 s, use whatever we have.
+    setTimeout(settle, 5_000);
   }, []);
 
   const handleSelectPin = useCallback((pin: TreePin) => {
@@ -207,6 +233,7 @@ export default function ProjectMapPage() {
       quantity: d.quantity,
       description: d.description,
       color: d.color,
+      photos: [],
     };
     setLastColor(d.color);
     const { data, error: err } = await supabase
