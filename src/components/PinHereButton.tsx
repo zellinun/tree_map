@@ -9,7 +9,7 @@ type Props = {
 
 export default function PinHereButton({ onClick, loading, disabled }: Props) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <Button
         onClick={onClick}
         disabled={disabled || loading}

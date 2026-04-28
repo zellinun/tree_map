@@ -58,15 +58,32 @@ export default function ProjectMapPage() {
       setPins(list);
       setPending(readQueue(projectId));
       if (list.length > 0) {
-        setCenter([list[0].latitude, list[0].longitude]);
-      } else if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => setCenter([pos.coords.latitude, pos.coords.longitude]),
-          () => {},
-          { enableHighAccuracy: true, maximumAge: 30_000, timeout: 10_000 }
-        );
+        const here: [number, number] = [list[0].latitude, list[0].longitude];
+        setCenter(here);
+        setFlyTo(here);
       }
     })();
+
+    // Always try to center on the user's actual location on entry.
+    // MapContainer.center is only the *initial* value, so we drive movement
+    // through flyTo (handled by MapEvents inside MapView).
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!active) return;
+          const here: [number, number] = [
+            pos.coords.latitude,
+            pos.coords.longitude,
+          ];
+          setCenter(here);
+          setFlyTo(here);
+        },
+        () => {
+          // permission denied / unavailable: stick with the fallback.
+        },
+        { enableHighAccuracy: true, maximumAge: 30_000, timeout: 15_000 }
+      );
+    }
     return () => {
       active = false;
     };
