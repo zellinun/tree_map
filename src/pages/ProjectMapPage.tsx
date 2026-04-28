@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FileText, List, Map as MapIcon, Maximize2 } from "lucide-react";
-import type L from "leaflet";
+import type { MapHandle } from "@/components/MapView";
 import Header from "@/components/Header";
 import MapView from "@/components/MapView";
 import Crosshair from "@/components/Crosshair";
@@ -43,7 +43,7 @@ export default function ProjectMapPage() {
   const [fitTrigger, setFitTrigger] = useState(0);
   const [lastColor, setLastColor] = useState<string>(DEFAULT_PIN_COLOR);
 
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<MapHandle | null>(null);
 
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
@@ -163,6 +163,7 @@ export default function ProjectMapPage() {
         return;
       }
       const c = m.getCenter();
+      if (!c) { setError("Map not ready yet — try again in a second."); return; }
       openDraft(c.lat, c.lng, preset);
     },
     [openDraft]

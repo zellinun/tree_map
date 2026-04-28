@@ -11,6 +11,13 @@ function zoomScale(zoom: number): number {
   return Math.max(0.4, Math.min(1.2, (zoom - 14) / 5));
 }
 
+// Adapter so ProjectMapPage can call map.getCenter() / map.getZoom()
+// using a Leaflet-compatible interface (only what's actually used).
+export type MapHandle = {
+  getCenter(): { lat: number; lng: number } | null;
+  getZoom(): number;
+};
+
 type Props = {
   pins: TreePin[];
   center: [number, number];
@@ -20,7 +27,7 @@ type Props = {
   fitToPins?: boolean;
   fitTrigger?: number;
   interactive?: boolean;
-  onMapReady?: (map: L.Map) => void;
+  onMapReady?: (map: MapHandle) => void;
 };
 
 function PinMarker({
@@ -83,7 +90,6 @@ export default function MapView({
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevFitTrigger = useRef<number | undefined>(undefined);
   const [pinScale, setPinScale] = useState(1);
   const [mapCenter] = useState<google.maps.LatLngLiteral>({
@@ -110,24 +116,16 @@ export default function MapView({
     mapRef.current.fitBounds(bounds, 40);
   }, [fitTrigger, fitToPins, pins]);
 
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
   const onLoad = useCallback(
     (map: google.maps.Map) => {
       mapRef.current = map;
 
       // Zoom-responsive marker sizing
-      const updateScale = () => {
+      map.addListener("zoom_changed", () => {
         const z = map.getZoom() ?? zoom;
         setPinScale(zoomScale(z));
-      };
-      map.addListener("zoom_changed", updateScale);
-      updateScale();
+      });
+      setPinScale(zoomScale(map.getZoom() ?? zoom));
 
       // Non-interactive mode for report embed
       if (!interactive) {
@@ -140,52 +138,23 @@ export default function MapView({
         });
       }
 
-      if (!onMapLongPress) return;
-
-      // Long-press via Google Maps mousedown event
-      map.addListener("mousedown", (e: google.maps.MapMouseEvent) => {
-        if (!e.latLng) return;
-        const lat = e.latLng.lat();
-        const lng = e.latLng.lng();
-        longPressTimer.current = setTimeout(() => {
-          onMapLongPress(lat, lng);
-        }, 550);
-      });
-      map.addListener("mouseup", cancelLongPress);
-      map.addListener("mousemove", cancelLongPress);
-      map.addListener("dragstart", cancelLongPress);
-
-      // Touch long-press via DOM (Google Maps doesn't expose touch events)
-      const container = map.getDiv();
-      const onTouchStart = (e: TouchEvent) => {
-        const touch = e.touches[0];
-        const proj = map.getProjection();
-        const bounds = container.getBoundingClientRect();
-        if (!proj) return;
-        const scale = Math.pow(2, map.getZoom() ?? 0);
-        const mapBounds = map.getBounds();
-        const nw = proj.fromLatLngToPoint(
-          new google.maps.LatLng(
-            mapBounds?.getNorthEast().lat() ?? 0,
-            mapBounds?.getSouthWest().lng() ?? 0
-          )
-        );
-        if (!nw) return;
-        const point = new google.maps.Point(
-          (touch.clientX - bounds.left) / scale + nw.x,
-          (touch.clientY - bounds.top) / scale + nw.y
-        );
-        const latLng = proj.fromPointToLatLng(point);
-        if (!latLng) return;
-        longPressTimer.current = setTimeout(() => {
-          onMapLongPress(latLng.lat(), latLng.lng());
-        }, 550);
-      };
-      container.addEventListener("touchstart", onTouchStart, { passive: true });
-      container.addEventListener("touchend", cancelLongPress, { passive: true });
-      container.addEventListener("touchmove", cancelLongPress, { passive: true });
+      // Expose a handle so ProjectMapPage can read center/zoom
+      // (used by crosshair-based pin drop in NewPinSpeedDial flow)
+      if (onMapReady) {
+        const handle: MapHandle = {
+          getCenter() {
+            const c = map.getCenter();
+            if (!c) return null;
+            return { lat: c.lat(), lng: c.lng() };
+          },
+          getZoom() {
+            return map.getZoom() ?? 19;
+          },
+        };
+        onMapReady(handle);
+      }
     },
-    [onMapLongPress, cancelLongPress, interactive, zoom]
+    [interactive, onMapReady, zoom]
   );
 
   const onUnmount = useCallback(() => {
