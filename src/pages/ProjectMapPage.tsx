@@ -365,7 +365,7 @@ export default function ProjectMapPage() {
                 }}
               />
             </div>
-            <Crosshair />
+            {!sheetOpen && <Crosshair />}
             <LocateMeButton onClick={handleLocateMe} loading={locating} />
             <NewPinSpeedDial onPick={handlePresetPick} />
           </>
