@@ -12,7 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { TreePin } from "@/lib/types";
+import { DEFAULT_PIN_COLOR, PIN_COLORS } from "@/lib/colors";
 
 export type PinDraft = {
   pin_number: number;
@@ -21,6 +23,7 @@ export type PinDraft = {
   species_name: string;
   quantity: number;
   description: string | null;
+  color: string;
 };
 
 type Props = {
@@ -43,23 +46,28 @@ export default function PinSheet({
   onDelete,
 }: Props) {
   const [species, setSpecies] = useState("");
-  const [quantity, setQuantity] = useState<number>(1);
+  // String-typed so the user can clear the field while typing.
+  const [quantity, setQuantity] = useState<string>("1");
   const [description, setDescription] = useState("");
+  const [color, setColor] = useState<string>(DEFAULT_PIN_COLOR);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (pin) {
       setSpecies(pin.species_name ?? "");
-      setQuantity(pin.quantity ?? 1);
+      setQuantity(String(pin.quantity ?? 1));
       setDescription(pin.description ?? "");
+      setColor(pin.color || DEFAULT_PIN_COLOR);
     } else if (draft) {
       setSpecies(draft.species_name ?? "");
-      setQuantity(draft.quantity ?? 1);
+      setQuantity(String(draft.quantity ?? 1));
       setDescription(draft.description ?? "");
+      setColor(draft.color || DEFAULT_PIN_COLOR);
     } else {
       setSpecies("");
-      setQuantity(1);
+      setQuantity("1");
       setDescription("");
+      setColor(DEFAULT_PIN_COLOR);
     }
   }, [pin, draft, open]);
 
@@ -67,11 +75,18 @@ export default function PinSheet({
   const lat = pin?.latitude ?? draft?.latitude ?? 0;
   const lng = pin?.longitude ?? draft?.longitude ?? 0;
 
+  const cleanQuantity = (raw: string): number => {
+    if (raw.trim() === "") return 1;
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 1) return 1;
+    return n;
+  };
+
   const save = async () => {
     setSaving(true);
     try {
       const trimmedSpecies = species.trim() || "Unidentified";
-      const cleanQty = Math.max(1, Math.floor(Number(quantity) || 1));
+      const cleanQty = cleanQuantity(quantity);
       const cleanDesc = description.trim() ? description.trim() : null;
 
       if (pin) {
@@ -79,6 +94,7 @@ export default function PinSheet({
           species_name: trimmedSpecies,
           quantity: cleanQty,
           description: cleanDesc,
+          color,
         });
       } else if (draft) {
         await onSaveDraft({
@@ -86,6 +102,7 @@ export default function PinSheet({
           species_name: trimmedSpecies,
           quantity: cleanQty,
           description: cleanDesc,
+          color,
         });
       }
       onOpenChange(false);
@@ -107,7 +124,12 @@ export default function PinSheet({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>
+          <DrawerTitle className="flex items-center gap-2">
+            <span
+              className="inline-block h-4 w-4 rounded-full border border-ink/15"
+              style={{ background: color }}
+              aria-hidden="true"
+            />
             {pin ? `Pin #${pinNumber}` : `New pin · #${pinNumber}`}
           </DrawerTitle>
           <DrawerDescription>
@@ -134,13 +156,40 @@ export default function PinSheet({
               inputMode="numeric"
               min={1}
               value={quantity}
-              onChange={(e) =>
-                setQuantity(Math.max(1, Math.floor(Number(e.target.value) || 1)))
-              }
+              onChange={(e) => setQuantity(e.target.value)}
+              onBlur={() => setQuantity(String(cleanQuantity(quantity)))}
             />
             <p className="text-xs text-ink/50">
               Use {">"} 1 when this pin represents a row of identical adjacent
               trees.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Color</Label>
+            <div className="flex flex-wrap gap-2">
+              {PIN_COLORS.map((c) => {
+                const active = color.toLowerCase() === c.hex.toLowerCase();
+                return (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    onClick={() => setColor(c.hex)}
+                    className={cn(
+                      "relative h-10 w-10 rounded-full border-2 transition active:scale-95",
+                      active
+                        ? "border-ink ring-2 ring-ink/15 ring-offset-1"
+                        : "border-ink/10"
+                    )}
+                    style={{ background: c.hex }}
+                    aria-label={c.name}
+                    aria-pressed={active}
+                    title={c.name}
+                  />
+                );
+              })}
+            </div>
+            <p className="text-xs text-ink/50">
+              Group similar trees by color. The report shows a color legend.
             </p>
           </div>
           <div className="space-y-2">

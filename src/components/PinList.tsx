@@ -1,6 +1,7 @@
 import type { TreePin } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { TreePine } from "lucide-react";
+import { DEFAULT_PIN_COLOR } from "@/lib/colors";
 
 type Props = {
   pins: TreePin[];
@@ -28,7 +29,10 @@ export default function PinList({ pins, onSelect }: Props) {
             onClick={() => onSelect(p)}
             className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-ink/5"
           >
-            <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg text-xs font-semibold">
+            <span
+              className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-paper text-xs font-semibold ring-2 ring-paper"
+              style={{ background: p.color || DEFAULT_PIN_COLOR }}
+            >
               {p.pin_number}
             </span>
             <span className="min-w-0 flex-1">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { FileText, List, Map as MapIcon } from "lucide-react";
+import { FileText, List, Map as MapIcon, Maximize2 } from "lucide-react";
 import Header from "@/components/Header";
 import MapView from "@/components/MapView";
 import PinHereButton from "@/components/PinHereButton";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin, PendingPin } from "@/lib/types";
 import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
+import { DEFAULT_PIN_COLOR } from "@/lib/colors";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
 const PIN_HIGH_ACCURACY: PositionOptions = {
@@ -36,6 +37,8 @@ export default function ProjectMapPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activePin, setActivePin] = useState<TreePin | null>(null);
   const [draft, setDraft] = useState<PinDraft | null>(null);
+  const [fitTrigger, setFitTrigger] = useState(0);
+  const [lastColor, setLastColor] = useState<string>(DEFAULT_PIN_COLOR);
 
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
@@ -118,6 +121,7 @@ export default function ProjectMapPage() {
       species_name: p.species_name,
       quantity: p.quantity,
       description: p.description,
+      color: p.color || DEFAULT_PIN_COLOR,
       created_at: new Date().toISOString(),
     }));
     return [...pins, ...pendingAsPins].sort(
@@ -135,11 +139,12 @@ export default function ProjectMapPage() {
         species_name: "",
         quantity: 1,
         description: null,
+        color: lastColor,
       });
       setSheetOpen(true);
       setFlyTo([lat, lng]);
     },
-    [nextPinNumber]
+    [nextPinNumber, lastColor]
   );
 
   const handlePinHere = () => {
@@ -183,7 +188,9 @@ export default function ProjectMapPage() {
       species_name: d.species_name,
       quantity: d.quantity,
       description: d.description,
+      color: d.color,
     };
+    setLastColor(d.color);
     const { data, error: err } = await supabase
       .from("tree_pins")
       .insert(row)
@@ -208,6 +215,7 @@ export default function ProjectMapPage() {
   };
 
   const updatePin = async (pinId: string, patch: Partial<TreePin>) => {
+    if (patch.color) setLastColor(patch.color);
     const { data, error: err } = await supabase
       .from("tree_pins")
       .update(patch)
@@ -265,6 +273,17 @@ export default function ProjectMapPage() {
         title={project?.name ?? "Loading…"}
         right={
           <div className="flex items-center gap-1">
+            {view === "map" && allMarkers.length > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setFitTrigger((t) => t + 1)}
+                title="Fit all pins"
+              >
+                <Maximize2 className="h-4 w-4" />
+                Fit all
+              </Button>
+            ) : null}
             <Button
               variant={view === "map" ? "default" : "ghost"}
               size="sm"
@@ -322,6 +341,8 @@ export default function ProjectMapPage() {
                 onMapLongPress={handleMapLongPress}
                 onPinTap={handleSelectPin}
                 flyTo={flyTo}
+                fitToPins={fitTrigger > 0}
+                fitTrigger={fitTrigger}
               />
             </div>
             <PinHereButton onClick={handlePinHere} loading={locating} />

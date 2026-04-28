@@ -22,7 +22,9 @@ start dropping pins.
 ## Supabase setup (one-time)
 
 1. In the `tree_mapping` Supabase project SQL editor, run
-   [`supabase/schema.sql`](./supabase/schema.sql).
+   [`supabase/schema.sql`](./supabase/schema.sql). The script is idempotent —
+   re-run it any time the schema changes (e.g. when the `color` column was
+   added to `tree_pins`).
 2. Auth → Providers → enable **Email (magic link)**.
 3. Auth → URL Configuration:
    - Site URL: `https://zellin.ai`

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Printer, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import MapView from "@/components/MapView";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin } from "@/lib/types";
 import { formatLongDate } from "@/lib/utils";
+import { DEFAULT_PIN_COLOR, colorName } from "@/lib/colors";
 
 type SpeciesRow = {
   species_name: string;
@@ -12,6 +14,8 @@ type SpeciesRow = {
   tree_count: number;
   pin_numbers: number[];
   description: string | null;
+  dominant_color: string;
+  colors: string[];
 };
 
 export default function ReportPage() {
@@ -48,12 +52,14 @@ export default function ReportPage() {
     const map = new Map<string, SpeciesRow>();
     for (const p of pins) {
       const key = p.species_name.trim();
+      const color = p.color || DEFAULT_PIN_COLOR;
       const row = map.get(key);
       if (row) {
         row.pin_count += 1;
         row.tree_count += p.quantity;
         row.pin_numbers.push(p.pin_number);
         if (!row.description && p.description) row.description = p.description;
+        if (!row.colors.includes(color)) row.colors.push(color);
       } else {
         map.set(key, {
           species_name: key,
@@ -61,8 +67,28 @@ export default function ReportPage() {
           tree_count: p.quantity,
           pin_numbers: [p.pin_number],
           description: p.description ?? null,
+          dominant_color: color,
+          colors: [color],
         });
       }
+    }
+    // Resolve dominant color per species (most frequent across pins).
+    for (const [key, row] of map.entries()) {
+      const counts = new Map<string, number>();
+      for (const p of pins) {
+        if (p.species_name.trim() !== key) continue;
+        const c = p.color || DEFAULT_PIN_COLOR;
+        counts.set(c, (counts.get(c) ?? 0) + 1);
+      }
+      let best = row.dominant_color;
+      let bestN = 0;
+      for (const [c, n] of counts) {
+        if (n > bestN) {
+          best = c;
+          bestN = n;
+        }
+      }
+      row.dominant_color = best;
     }
     return Array.from(map.values()).sort((a, b) => b.tree_count - a.tree_count);
   }, [pins]);
@@ -72,6 +98,13 @@ export default function ReportPage() {
     const totalTrees = pins.reduce((s, p) => s + p.quantity, 0);
     return { totalPins, totalTrees };
   }, [pins]);
+
+  // Initial center for the map — the first pin if we have one. Bounds are
+  // applied by MapView via fitToPins once pins are present.
+  const mapCenter: [number, number] =
+    pins.length > 0
+      ? [pins[0].latitude, pins[0].longitude]
+      : [37.9735, -122.5311];
 
   return (
     <main className="min-h-screen bg-paper">
@@ -119,6 +152,29 @@ export default function ReportPage() {
           </div>
         </header>
 
+        {pins.length > 0 ? (
+          <section className="mb-8">
+            <h2 className="mb-3 text-lg font-semibold tracking-tight">
+              Property map
+            </h2>
+            <div className="report-map h-[360px] w-full overflow-hidden rounded-lg border border-ink/10">
+              <MapView
+                pins={pins}
+                center={mapCenter}
+                zoom={19}
+                fitToPins
+                fitTrigger={1}
+                interactive={false}
+              />
+            </div>
+            <p className="mt-2 text-xs text-ink/50">
+              Numbered, color-coded markers correspond to the species legend
+              below. Allow a few seconds for satellite tiles to load before
+              printing.
+            </p>
+          </section>
+        ) : null}
+
         <section className="mb-8 grid grid-cols-2 gap-6">
           <div className="rounded-lg border border-ink/10 p-4">
             <div className="text-xs uppercase tracking-wider text-ink/50">
@@ -140,7 +196,7 @@ export default function ReportPage() {
 
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold tracking-tight">
-            Species summary
+            Species &amp; color legend
           </h2>
           {bySpecies.length === 0 ? (
             <p className="text-sm text-ink/60">No pins recorded yet.</p>
@@ -148,6 +204,7 @@ export default function ReportPage() {
             <table className="w-full text-sm">
               <thead className="border-b border-ink/15 text-left text-xs uppercase tracking-wider text-ink/50">
                 <tr>
+                  <th className="py-2 pr-3 font-medium">Color</th>
                   <th className="py-2 pr-4 font-medium">Species</th>
                   <th className="py-2 pr-4 text-right font-medium">Pins</th>
                   <th className="py-2 pr-4 text-right font-medium">Trees</th>
@@ -160,6 +217,18 @@ export default function ReportPage() {
                     key={row.species_name}
                     className="border-b border-ink/5 align-top"
                   >
+                    <td className="py-2 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        {row.colors.slice(0, 4).map((c) => (
+                          <span
+                            key={c}
+                            className="inline-block h-4 w-4 rounded-full border border-ink/15"
+                            style={{ background: c }}
+                            title={colorName(c)}
+                          />
+                        ))}
+                      </div>
+                    </td>
                     <td className="py-2 pr-4 font-medium">
                       {row.species_name}
                       <div className="text-xs text-ink/50">
@@ -210,7 +279,10 @@ export default function ReportPage() {
                   key={p.id}
                   className="flex items-baseline gap-3 border-b border-ink/5 pb-1.5"
                 >
-                  <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg text-xs font-semibold">
+                  <span
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-paper text-xs font-semibold"
+                    style={{ background: p.color || DEFAULT_PIN_COLOR }}
+                  >
                     {p.pin_number}
                   </span>
                   <span className="flex-1">

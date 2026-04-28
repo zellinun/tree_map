@@ -17,6 +17,7 @@ export type TreePin = {
   species_name: string;
   quantity: number;
   description: string | null;
+  color: string;
   created_at: string;
 };
 
