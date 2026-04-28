@@ -15,12 +15,12 @@ type Props = {
   pins: TreePin[];
   center: [number, number];
   zoom?: number;
-  onMapLongPress?: (lat: number, lng: number) => void;
   onPinTap?: (pin: TreePin) => void;
   flyTo?: [number, number] | null;
   fitToPins?: boolean;
   fitTrigger?: number;
   interactive?: boolean;
+  onMapReady?: (map: L.Map) => void;
 };
 
 function PinMarker({
@@ -71,12 +71,12 @@ export default function MapView({
   pins,
   center,
   zoom = 19,
-  onMapLongPress,
   onPinTap,
   flyTo,
   fitToPins,
   fitTrigger,
   interactive = true,
+  onMapReady,
 }: Props) {
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_KEY,

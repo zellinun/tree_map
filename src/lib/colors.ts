@@ -22,3 +22,20 @@ export function colorName(hex: string): string {
   );
   return found?.name ?? hex;
 }
+
+export type PinPreset = {
+  species: string;
+  color: string;
+};
+
+// Five quick-add presets shown by the speed dial. Tap drops a pin at the
+// crosshair (= map center) prefilled with this species + color, then opens
+// the drawer for description/quantity. Pick "Other" for anything outside
+// these four — the user can rename in the drawer.
+export const PIN_PRESETS: PinPreset[] = [
+  { species: "Oak", color: "#15803D" },
+  { species: "Pine", color: "#D97706" },
+  { species: "Cypress", color: "#0284C7" },
+  { species: "Palm", color: "#65A30D" },
+  { species: "Other", color: "#475569" },
+];

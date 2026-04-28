@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FileText, List, Map as MapIcon, Maximize2 } from "lucide-react";
+import type L from "leaflet";
 import Header from "@/components/Header";
 import MapView from "@/components/MapView";
-import PinHereButton from "@/components/PinHereButton";
+import Crosshair from "@/components/Crosshair";
+import LocateMeButton from "@/components/LocateMeButton";
+import NewPinSpeedDial from "@/components/NewPinSpeedDial";
 import PinSheet, { type PinDraft } from "@/components/PinSheet";
 import PinList from "@/components/PinList";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin, PendingPin } from "@/lib/types";
 import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
-import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import { DEFAULT_PIN_COLOR, type PinPreset } from "@/lib/colors";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
 const PIN_HIGH_ACCURACY: PositionOptions = {
@@ -39,6 +42,8 @@ export default function ProjectMapPage() {
   const [draft, setDraft] = useState<PinDraft | null>(null);
   const [fitTrigger, setFitTrigger] = useState(0);
   const [lastColor, setLastColor] = useState<string>(DEFAULT_PIN_COLOR);
+
+  const mapRef = useRef<L.Map | null>(null);
 
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
@@ -130,24 +135,41 @@ export default function ProjectMapPage() {
   }, [pins, pending]);
 
   const openDraft = useCallback(
-    (lat: number, lng: number) => {
+    (lat: number, lng: number, preset?: PinPreset) => {
       setActivePin(null);
       setDraft({
         pin_number: nextPinNumber,
         latitude: lat,
         longitude: lng,
-        species_name: "",
+        species_name: preset?.species ?? "",
         quantity: 1,
         description: null,
-        color: lastColor,
+        color: preset?.color ?? lastColor,
       });
       setSheetOpen(true);
-      setFlyTo([lat, lng]);
+      // Don't flyTo — user just framed the crosshair where they want the pin;
+      // re-centering would feel like the map snapping away under them.
     },
     [nextPinNumber, lastColor]
   );
 
-  const handlePinHere = () => {
+  // Speed dial: drop a pin at the crosshair (= map center) with the
+  // chosen preset, then open the drawer to confirm.
+  const handlePresetPick = useCallback(
+    (preset: PinPreset) => {
+      const m = mapRef.current;
+      if (!m) {
+        setError("Map not ready yet — try again in a second.");
+        return;
+      }
+      const c = m.getCenter();
+      openDraft(c.lat, c.lng, preset);
+    },
+    [openDraft]
+  );
+
+  // "Locate me" button: recenter the map on the user's current GPS position.
+  const handleLocateMe = useCallback(() => {
     if (!navigator.geolocation) {
       setError("Geolocation is not available in this browser.");
       return;
@@ -156,7 +178,7 @@ export default function ProjectMapPage() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false);
-        openDraft(pos.coords.latitude, pos.coords.longitude);
+        setFlyTo([pos.coords.latitude, pos.coords.longitude]);
       },
       (err) => {
         setLocating(false);
@@ -164,12 +186,7 @@ export default function ProjectMapPage() {
       },
       PIN_HIGH_ACCURACY
     );
-  };
-
-  const handleMapLongPress = useCallback(
-    (lat: number, lng: number) => openDraft(lat, lng),
-    [openDraft]
-  );
+  }, []);
 
   const handleSelectPin = useCallback((pin: TreePin) => {
     if (pin.id.startsWith("pending:")) return;
@@ -338,14 +355,18 @@ export default function ProjectMapPage() {
               <MapView
                 pins={allMarkers}
                 center={center}
-                onMapLongPress={handleMapLongPress}
                 onPinTap={handleSelectPin}
                 flyTo={flyTo}
                 fitToPins={fitTrigger > 0}
                 fitTrigger={fitTrigger}
+                onMapReady={(m) => {
+                  mapRef.current = m;
+                }}
               />
             </div>
-            <PinHereButton onClick={handlePinHere} loading={locating} />
+            <Crosshair />
+            <LocateMeButton onClick={handleLocateMe} loading={locating} />
+            <NewPinSpeedDial onPick={handlePresetPick} />
           </>
         ) : (
           <div className="h-full overflow-y-auto pb-24">
