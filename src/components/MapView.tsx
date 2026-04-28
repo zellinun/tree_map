@@ -8,12 +8,12 @@ type Props = {
   pins: TreePin[];
   center: [number, number];
   zoom?: number;
-  onMapLongPress?: (lat: number, lng: number) => void;
   onPinTap?: (pin: TreePin) => void;
   flyTo?: [number, number] | null;
   fitToPins?: boolean;
   fitTrigger?: number;
   interactive?: boolean;
+  onMapReady?: (map: L.Map) => void;
 };
 
 function makeIcon(num: number, color: string) {
@@ -37,19 +37,25 @@ function syncZoomScale(map: L.Map) {
 }
 
 function MapEvents({
-  onLongPress,
   flyTo,
   fitTrigger,
   pins,
   fitToPins,
+  onMapReady,
 }: {
-  onLongPress?: (lat: number, lng: number) => void;
   flyTo?: [number, number] | null;
   fitTrigger?: number;
   pins: TreePin[];
   fitToPins?: boolean;
+  onMapReady?: (map: L.Map) => void;
 }) {
   const map = useMap();
+
+  // Hand the map instance up to the parent so it can read the current
+  // center on demand (used by the new-pin speed dial).
+  useEffect(() => {
+    onMapReady?.(map);
+  }, [map, onMapReady]);
 
   // Keep the pin scale CSS variable in sync with the current zoom level.
   useEffect(() => {
@@ -77,42 +83,6 @@ function MapEvents({
     setTimeout(() => syncZoomScale(map), 320);
   }, [fitTrigger, fitToPins, pins, map]);
 
-  useEffect(() => {
-    if (!onLongPress) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let startLatLng: L.LatLng | null = null;
-
-    const onDown = (e: L.LeafletMouseEvent) => {
-      startLatLng = e.latlng;
-      timer = setTimeout(() => {
-        if (startLatLng) onLongPress(startLatLng.lat, startLatLng.lng);
-      }, 550);
-    };
-    const cancel = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-      startLatLng = null;
-    };
-
-    map.on("mousedown", onDown);
-    map.on("touchstart", onDown as unknown as L.LeafletEventHandlerFn);
-    map.on("mouseup", cancel);
-    map.on("mousemove", cancel);
-    map.on("touchend", cancel);
-    map.on("touchmove", cancel);
-    map.on("dragstart", cancel);
-
-    return () => {
-      map.off("mousedown", onDown);
-      map.off("touchstart", onDown as unknown as L.LeafletEventHandlerFn);
-      map.off("mouseup", cancel);
-      map.off("mousemove", cancel);
-      map.off("touchend", cancel);
-      map.off("touchmove", cancel);
-      map.off("dragstart", cancel);
-    };
-  }, [map, onLongPress]);
-
   return null;
 }
 
@@ -120,12 +90,12 @@ export default function MapView({
   pins,
   center,
   zoom = 19,
-  onMapLongPress,
   onPinTap,
   flyTo,
   fitToPins,
   fitTrigger,
   interactive = true,
+  onMapReady,
 }: Props) {
   return (
     <MapContainer
@@ -158,11 +128,11 @@ export default function MapView({
         />
       ))}
       <MapEvents
-        onLongPress={onMapLongPress}
         flyTo={flyTo}
         fitTrigger={fitTrigger}
         pins={pins}
         fitToPins={fitToPins}
+        onMapReady={onMapReady}
       />
     </MapContainer>
   );
