@@ -1,8 +1,15 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet";
-import L from "leaflet";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { GoogleMap, useJsApiLoader, OverlayView } from "@react-google-maps/api";
 import type { TreePin } from "@/lib/types";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string;
+
+const MAP_CONTAINER_STYLE = { width: "100%", height: "100%" };
+
+function zoomScale(zoom: number): number {
+  return Math.max(0.4, Math.min(1.2, (zoom - 14) / 5));
+}
 
 type Props = {
   pins: TreePin[];
@@ -16,104 +23,48 @@ type Props = {
   interactive?: boolean;
 };
 
-function makeIcon(num: number, color: string) {
-  return L.divIcon({
-    className: "tree-pin-marker",
-    html: `<div class="pin" style="background:${color}"><span>${num}</span></div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-  });
-}
-
-// Linearly scale the pin size with zoom so a zoomed-out property view
-// doesn't turn into a wall of overlapping markers.
-function zoomScale(zoom: number): number {
-  return Math.max(0.4, Math.min(1.2, (zoom - 14) / 5));
-}
-
-function syncZoomScale(map: L.Map) {
-  const el = map.getContainer();
-  el.style.setProperty("--pin-scale", String(zoomScale(map.getZoom())));
-}
-
-function MapEvents({
-  onLongPress,
-  flyTo,
-  fitTrigger,
-  pins,
-  fitToPins,
+function PinMarker({
+  pin,
+  scale,
+  onClick,
 }: {
-  onLongPress?: (lat: number, lng: number) => void;
-  flyTo?: [number, number] | null;
-  fitTrigger?: number;
-  pins: TreePin[];
-  fitToPins?: boolean;
+  pin: TreePin;
+  scale: number;
+  onClick?: (pin: TreePin) => void;
 }) {
-  const map = useMap();
-
-  // Keep the pin scale CSS variable in sync with the current zoom level.
-  useEffect(() => {
-    syncZoomScale(map);
-    const onZoom = () => syncZoomScale(map);
-    map.on("zoomend", onZoom);
-    return () => {
-      map.off("zoomend", onZoom);
-    };
-  }, [map]);
-
-  useEffect(() => {
-    if (flyTo) map.flyTo(flyTo, Math.max(map.getZoom(), 19), { duration: 0.6 });
-  }, [flyTo, map]);
-
-  // Fit-to-pins: triggered on mount when fitToPins=true, or on demand
-  // each time `fitTrigger` increments.
-  useEffect(() => {
-    if (!fitToPins || pins.length === 0) return;
-    const bounds = L.latLngBounds(
-      pins.map((p) => [p.latitude, p.longitude] as [number, number])
-    );
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 19 });
-    // Re-sync scale after the programmatic zoom.
-    setTimeout(() => syncZoomScale(map), 320);
-  }, [fitTrigger, fitToPins, pins, map]);
-
-  useEffect(() => {
-    if (!onLongPress) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let startLatLng: L.LatLng | null = null;
-
-    const onDown = (e: L.LeafletMouseEvent) => {
-      startLatLng = e.latlng;
-      timer = setTimeout(() => {
-        if (startLatLng) onLongPress(startLatLng.lat, startLatLng.lng);
-      }, 550);
-    };
-    const cancel = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-      startLatLng = null;
-    };
-
-    map.on("mousedown", onDown);
-    map.on("touchstart", onDown as unknown as L.LeafletEventHandlerFn);
-    map.on("mouseup", cancel);
-    map.on("mousemove", cancel);
-    map.on("touchend", cancel);
-    map.on("touchmove", cancel);
-    map.on("dragstart", cancel);
-
-    return () => {
-      map.off("mousedown", onDown);
-      map.off("touchstart", onDown as unknown as L.LeafletEventHandlerFn);
-      map.off("mouseup", cancel);
-      map.off("mousemove", cancel);
-      map.off("touchend", cancel);
-      map.off("touchmove", cancel);
-      map.off("dragstart", cancel);
-    };
-  }, [map, onLongPress]);
-
-  return null;
+  const color = pin.color || DEFAULT_PIN_COLOR;
+  const size = Math.round(32 * scale);
+  const fontSize = Math.round(13 * scale);
+  return (
+    <OverlayView
+      position={{ lat: pin.latitude, lng: pin.longitude }}
+      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+    >
+      <div
+        onClick={() => onClick?.(pin)}
+        style={{
+          transform: "translate(-50%, -50%)",
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          background: color,
+          border: `${Math.max(1.5, 2 * scale)}px solid #fff`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: fontSize,
+          cursor: onClick ? "pointer" : "default",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.5)",
+          userSelect: "none",
+          transition: "width 0.15s, height 0.15s, font-size 0.15s",
+        }}
+      >
+        {pin.pin_number}
+      </div>
+    </OverlayView>
+  );
 }
 
 export default function MapView({
@@ -127,43 +78,160 @@ export default function MapView({
   fitTrigger,
   interactive = true,
 }: Props) {
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_KEY,
+  });
+
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevFitTrigger = useRef<number | undefined>(undefined);
+  const [pinScale, setPinScale] = useState(1);
+  const [mapCenter] = useState<google.maps.LatLngLiteral>({
+    lat: center[0],
+    lng: center[1],
+  });
+
+  // flyTo: pan + zoom when a pin is placed
+  useEffect(() => {
+    if (flyTo && mapRef.current) {
+      mapRef.current.panTo({ lat: flyTo[0], lng: flyTo[1] });
+      const current = mapRef.current.getZoom() ?? zoom;
+      if (current < 19) mapRef.current.setZoom(19);
+    }
+  }, [flyTo, zoom]);
+
+  // fitTrigger: fit bounds to all pins when triggered
+  useEffect(() => {
+    if (!fitToPins || pins.length === 0 || !mapRef.current) return;
+    if (prevFitTrigger.current === fitTrigger && fitTrigger !== undefined) return;
+    prevFitTrigger.current = fitTrigger;
+    const bounds = new google.maps.LatLngBounds();
+    pins.forEach((p) => bounds.extend({ lat: p.latitude, lng: p.longitude }));
+    mapRef.current.fitBounds(bounds, 40);
+  }, [fitTrigger, fitToPins, pins]);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const onLoad = useCallback(
+    (map: google.maps.Map) => {
+      mapRef.current = map;
+
+      // Zoom-responsive marker sizing
+      const updateScale = () => {
+        const z = map.getZoom() ?? zoom;
+        setPinScale(zoomScale(z));
+      };
+      map.addListener("zoom_changed", updateScale);
+      updateScale();
+
+      // Non-interactive mode for report embed
+      if (!interactive) {
+        map.setOptions({
+          draggable: false,
+          zoomControl: false,
+          scrollwheel: false,
+          disableDoubleClickZoom: true,
+          gestureHandling: "none",
+        });
+      }
+
+      if (!onMapLongPress) return;
+
+      // Long-press via Google Maps mousedown event
+      map.addListener("mousedown", (e: google.maps.MapMouseEvent) => {
+        if (!e.latLng) return;
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
+        longPressTimer.current = setTimeout(() => {
+          onMapLongPress(lat, lng);
+        }, 550);
+      });
+      map.addListener("mouseup", cancelLongPress);
+      map.addListener("mousemove", cancelLongPress);
+      map.addListener("dragstart", cancelLongPress);
+
+      // Touch long-press via DOM (Google Maps doesn't expose touch events)
+      const container = map.getDiv();
+      const onTouchStart = (e: TouchEvent) => {
+        const touch = e.touches[0];
+        const proj = map.getProjection();
+        const bounds = container.getBoundingClientRect();
+        if (!proj) return;
+        const scale = Math.pow(2, map.getZoom() ?? 0);
+        const mapBounds = map.getBounds();
+        const nw = proj.fromLatLngToPoint(
+          new google.maps.LatLng(
+            mapBounds?.getNorthEast().lat() ?? 0,
+            mapBounds?.getSouthWest().lng() ?? 0
+          )
+        );
+        if (!nw) return;
+        const point = new google.maps.Point(
+          (touch.clientX - bounds.left) / scale + nw.x,
+          (touch.clientY - bounds.top) / scale + nw.y
+        );
+        const latLng = proj.fromPointToLatLng(point);
+        if (!latLng) return;
+        longPressTimer.current = setTimeout(() => {
+          onMapLongPress(latLng.lat(), latLng.lng());
+        }, 550);
+      };
+      container.addEventListener("touchstart", onTouchStart, { passive: true });
+      container.addEventListener("touchend", cancelLongPress, { passive: true });
+      container.addEventListener("touchmove", cancelLongPress, { passive: true });
+    },
+    [onMapLongPress, cancelLongPress, interactive, zoom]
+  );
+
+  const onUnmount = useCallback(() => {
+    mapRef.current = null;
+  }, []);
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-red-500">
+        Failed to load Google Maps
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-zinc-400">
+        Loading map…
+      </div>
+    );
+  }
+
   return (
-    <MapContainer
-      center={center}
+    <GoogleMap
+      mapContainerStyle={MAP_CONTAINER_STYLE}
+      center={mapCenter}
       zoom={zoom}
-      maxZoom={21}
-      zoomControl={false}
-      attributionControl
-      className="h-full w-full"
-      dragging={interactive}
-      touchZoom={interactive}
-      doubleClickZoom={interactive}
-      scrollWheelZoom={interactive}
-      boxZoom={interactive}
-      keyboard={interactive}
+      options={{
+        mapTypeId: "satellite",
+        tilt: 0,
+        disableDefaultUI: true,
+        zoomControl: interactive,
+        gestureHandling: interactive ? "greedy" : "none",
+        clickableIcons: false,
+      }}
+      onLoad={onLoad}
+      onUnmount={onUnmount}
     >
-      <TileLayer
-        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        attribution='Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-        maxZoom={21}
-      />
-      {pins.map((p) => (
-        <Marker
-          key={p.id}
-          position={[p.latitude, p.longitude]}
-          icon={makeIcon(p.pin_number, p.color || DEFAULT_PIN_COLOR)}
-          eventHandlers={{
-            click: () => onPinTap?.(p),
-          }}
+      {pins.map((pin) => (
+        <PinMarker
+          key={pin.id}
+          pin={pin}
+          scale={pinScale}
+          onClick={onPinTap}
         />
       ))}
-      <MapEvents
-        onLongPress={onMapLongPress}
-        flyTo={flyTo}
-        fitTrigger={fitTrigger}
-        pins={pins}
-        fitToPins={fitToPins}
-      />
-    </MapContainer>
+    </GoogleMap>
   );
 }
