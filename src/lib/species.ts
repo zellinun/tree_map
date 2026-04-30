@@ -1,5 +1,3 @@
-import { PIN_COLORS } from "./colors";
-
 // 41 built-in species, alphabetized at module load. Tracked separately from
 // user-added customs so the built-ins are immutable.
 export const BUILT_IN_SPECIES: readonly string[] = Object.freeze(
@@ -48,11 +46,14 @@ export const BUILT_IN_SPECIES: readonly string[] = Object.freeze(
   ].sort((a, b) => a.localeCompare(b))
 );
 
-// Deterministic species → palette color, so the same species name always gets
-// the same color across pins, projects, sessions, and devices. With 41
-// built-ins and an 8-color palette, multiple species share a color — the
-// numbered marker + report legend table is the canonical identifier; color
-// is a visual aid the user can still override per-pin.
+// Deterministic species → color. Hashes the species name to a hue in HSL
+// space (360 distinct hues vs. 8 palette slots) so the 41 built-in species
+// each render with a visually distinct color, stable across pins / projects
+// / sessions / devices. Saturation + lightness are fixed for legibility on
+// satellite imagery (mid-bright; same perceived weight everywhere).
+//
+// Hash collisions on hue are still possible (FNV → mod 360) but a 1-in-
+// roughly-360 collision rate is dramatically better than the old 1-in-8.
 export function colorForSpecies(name: string): string {
   const trimmed = name.trim().toLowerCase();
   let h = 2166136261; // FNV-1a 32-bit offset basis
@@ -60,9 +61,13 @@ export function colorForSpecies(name: string): string {
     h ^= trimmed.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  const idx = (h >>> 0) % PIN_COLORS.length;
-  return PIN_COLORS[idx].hex;
+  const hue = (h >>> 0) % 360;
+  return `hsl(${hue} 70% 45%)`;
 }
+
+// PIN_COLORS is still exported for the manual override picker in PinSheet.
+// Re-export so callers don't have to know about the dual-source.
+export { PIN_COLORS } from "./colors";
 
 const CUSTOM_KEY = "zellin:custom-species";
 

@@ -6,7 +6,7 @@ import MapView from "@/components/MapView";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin } from "@/lib/types";
 import { formatLongDate } from "@/lib/utils";
-import { DEFAULT_PIN_COLOR, colorName } from "@/lib/colors";
+import { DEFAULT_PIN_COLOR } from "@/lib/colors";
 
 type SpeciesRow = {
   species_name: string;
@@ -72,7 +72,6 @@ export default function ReportPage() {
         });
       }
     }
-    // Resolve dominant color per species (most frequent across pins).
     for (const [key, row] of map.entries()) {
       const counts = new Map<string, number>();
       for (const p of pins) {
@@ -99,12 +98,16 @@ export default function ReportPage() {
     return { totalPins, totalTrees };
   }, [pins]);
 
-  // Initial center for the map — the first pin if we have one. Bounds are
-  // applied by MapView via fitToPins once pins are present.
   const mapCenter: [number, number] =
     pins.length > 0
       ? [pins[0].latitude, pins[0].longitude]
       : [37.9735, -122.5311];
+
+  const handlePrint = () => {
+    // Browsers throttle window.print() if not invoked from a user gesture
+    // — this handler runs from a button onClick so it's fine.
+    setTimeout(() => window.print(), 50);
+  };
 
   return (
     <main className="min-h-screen bg-paper">
@@ -115,195 +118,214 @@ export default function ReportPage() {
             Back to map
           </Link>
         </Button>
-        <Button variant="accent" size="sm" onClick={() => window.print()}>
+        <Button variant="accent" size="sm" onClick={handlePrint}>
           <Printer className="h-4 w-4" />
           Print / Save as PDF
         </Button>
       </div>
 
       {error ? (
-        <div className="no-print mx-auto mt-3 max-w-3xl rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="no-print mx-auto mt-3 max-w-5xl rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
-      <article className="report mx-auto max-w-3xl px-6 py-10 text-ink">
-        <header className="mb-8 flex items-start justify-between gap-6 border-b border-ink/15 pb-6">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/50">
-              Tree Inventory Report
+      {/* On-screen preview is constrained to a max width so it's readable
+          on a phone, but the print stylesheet sizes everything to letter
+          landscape. */}
+      <article className="report mx-auto max-w-[10.5in] px-6 py-8 text-ink">
+        {/* ──────────── PAGE 1: header + map + species summary ──────────── */}
+        <section className="report-page">
+          <header className="report-header mb-4 flex items-end justify-between gap-6 border-b border-ink/15 pb-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/50">
+                Tree Inventory Report
+              </div>
+              <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">
+                {project?.name ?? "Property"}
+              </h1>
+              {project?.address ? (
+                <p className="mt-0.5 truncate text-sm text-ink/70">
+                  {project.address}
+                </p>
+              ) : null}
             </div>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              {project?.name ?? "Property"}
-            </h1>
-            {project?.address ? (
-              <p className="mt-1 text-sm text-ink/70">{project.address}</p>
-            ) : null}
-            <p className="mt-2 text-sm text-ink/60">
-              Walk-through:{" "}
-              {project ? formatLongDate(project.created_at) : "—"}
-            </p>
-          </div>
-          <div className="text-right">
-            <div className="text-base font-semibold tracking-tight">
-              Higuera Tree Care
+            <div className="text-right">
+              <div className="text-sm font-semibold tracking-tight">
+                Higuera Tree Care
+              </div>
+              <div className="text-[11px] text-ink/60">
+                {project ? formatLongDate(project.created_at) : "—"}
+              </div>
+              <div className="text-[11px] text-ink/40">zellin.ai</div>
             </div>
-            <div className="text-xs text-ink/60">zellin.ai</div>
-          </div>
-        </header>
+          </header>
 
+          {/* Two-column body: map left, summary + species table right.
+              On screen at narrow widths it stacks; print always shows
+              side-by-side via the report-body grid utility class. */}
+          <div className="report-body grid grid-cols-1 gap-5 md:grid-cols-[1.6fr_1fr]">
+            {/* Map */}
+            <div className="report-map-wrap">
+              {pins.length > 0 ? (
+                <>
+                  <div className="report-map h-[5in] min-h-[320px] w-full overflow-hidden rounded-lg border border-ink/10">
+                    <MapView
+                      pins={pins}
+                      center={mapCenter}
+                      zoom={19}
+                      fitToPins
+                      fitTrigger={1}
+                      interactive={false}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] text-ink/45">
+                    Numbered, color-coded markers correspond to the species
+                    list. Allow a few seconds for satellite tiles to load
+                    before printing.
+                  </p>
+                </>
+              ) : (
+                <div className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-dashed border-ink/15 text-sm text-ink/50">
+                  No pins recorded yet.
+                </div>
+              )}
+            </div>
+
+            {/* Right column: totals + species summary */}
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-ink/10 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-ink/50">
+                    Pins
+                  </div>
+                  <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                    {totals.totalPins}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-ink/10 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-ink/50">
+                    Trees
+                  </div>
+                  <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                    {totals.totalTrees}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink/60">
+                  Species summary
+                </h2>
+                {bySpecies.length === 0 ? (
+                  <p className="text-xs text-ink/60">No pins recorded yet.</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead className="border-b border-ink/15 text-left text-[10px] uppercase tracking-wider text-ink/50">
+                      <tr>
+                        <th className="py-1.5 pr-2 font-medium"></th>
+                        <th className="py-1.5 pr-2 font-medium">Species</th>
+                        <th className="py-1.5 pr-2 text-right font-medium">
+                          Pins
+                        </th>
+                        <th className="py-1.5 text-right font-medium">
+                          Trees
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bySpecies.map((row) => (
+                        <tr
+                          key={row.species_name}
+                          className="border-b border-ink/5 align-top"
+                        >
+                          <td className="py-1.5 pr-2">
+                            <span
+                              className="inline-block h-3 w-3 rounded-full border border-ink/15"
+                              style={{ background: row.dominant_color }}
+                            />
+                          </td>
+                          <td className="py-1.5 pr-2 font-medium">
+                            {row.species_name}
+                          </td>
+                          <td className="py-1.5 pr-2 text-right tabular-nums">
+                            {row.pin_count}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums">
+                            {row.tree_count}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {project?.description ? (
+                <div>
+                  <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-ink/60">
+                    Notes
+                  </h2>
+                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink/80">
+                    {project.description}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        {/* ──────────── PAGE 2+: every pin in detail ──────────── */}
         {pins.length > 0 ? (
-          <section className="mb-8">
-            <h2 className="mb-3 text-lg font-semibold tracking-tight">
-              Property map
-            </h2>
-            <div className="report-map h-[360px] w-full overflow-hidden rounded-lg border border-ink/10">
-              <MapView
-                pins={pins}
-                center={mapCenter}
-                zoom={19}
-                fitToPins
-                fitTrigger={1}
-                interactive={false}
-              />
-            </div>
-            <p className="mt-2 text-xs text-ink/50">
-              Numbered, color-coded markers correspond to the species legend
-              below. Allow a few seconds for satellite tiles to load before
-              printing.
-            </p>
-          </section>
-        ) : null}
+          <section className="report-page report-page-break mt-6">
+            <header className="report-header mb-3 flex items-end justify-between gap-6 border-b border-ink/15 pb-2">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/50">
+                  Pin Detail · {project?.name ?? ""}
+                </div>
+                <h2 className="mt-0.5 text-base font-semibold tracking-tight">
+                  All {pins.length} pins
+                </h2>
+              </div>
+              <div className="text-right text-[10px] text-ink/40">
+                Higuera Tree Care · zellin.ai
+              </div>
+            </header>
 
-        <section className="mb-8 grid grid-cols-2 gap-6">
-          <div className="rounded-lg border border-ink/10 p-4">
-            <div className="text-xs uppercase tracking-wider text-ink/50">
-              Total pins
-            </div>
-            <div className="mt-1 text-3xl font-semibold tracking-tight">
-              {totals.totalPins}
-            </div>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-4">
-            <div className="text-xs uppercase tracking-wider text-ink/50">
-              Total trees
-            </div>
-            <div className="mt-1 text-3xl font-semibold tracking-tight">
-              {totals.totalTrees}
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold tracking-tight">
-            Species &amp; color legend
-          </h2>
-          {bySpecies.length === 0 ? (
-            <p className="text-sm text-ink/60">No pins recorded yet.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="border-b border-ink/15 text-left text-xs uppercase tracking-wider text-ink/50">
-                <tr>
-                  <th className="py-2 pr-3 font-medium">Color</th>
-                  <th className="py-2 pr-4 font-medium">Species</th>
-                  <th className="py-2 pr-4 text-right font-medium">Pins</th>
-                  <th className="py-2 pr-4 text-right font-medium">Trees</th>
-                  <th className="py-2 font-medium">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bySpecies.map((row) => (
-                  <tr
-                    key={row.species_name}
-                    className="border-b border-ink/5 align-top"
-                  >
-                    <td className="py-2 pr-3">
-                      <div className="flex items-center gap-1.5">
-                        {row.colors.slice(0, 4).map((c) => (
-                          <span
-                            key={c}
-                            className="inline-block h-4 w-4 rounded-full border border-ink/15"
-                            style={{ background: c }}
-                            title={colorName(c)}
-                          />
-                        ))}
-                      </div>
-                    </td>
-                    <td className="py-2 pr-4 font-medium">
-                      {row.species_name}
-                      <div className="text-xs text-ink/50">
-                        #{row.pin_numbers.join(", #")}
-                      </div>
-                    </td>
-                    <td className="py-2 pr-4 text-right tabular-nums">
-                      {row.pin_count}
-                    </td>
-                    <td className="py-2 pr-4 text-right tabular-nums">
-                      {row.tree_count}
-                    </td>
-                    <td className="py-2 text-ink/70">
-                      {row.description ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-
-        <section className="mb-8">
-          <h2 className="mb-2 text-lg font-semibold tracking-tight">Summary</h2>
-          <p className="text-sm text-ink/80">
-            Total pins: {totals.totalPins}. Total trees represented:{" "}
-            {totals.totalTrees} (sum of per-pin quantities).
-          </p>
-        </section>
-
-        {project?.description ? (
-          <section className="mb-8">
-            <h2 className="mb-2 text-lg font-semibold tracking-tight">Notes</h2>
-            <p className="whitespace-pre-wrap text-sm text-ink/80">
-              {project.description}
-            </p>
-          </section>
-        ) : null}
-
-        {pins.length > 0 ? (
-          <section className="mb-8">
-            <h2 className="mb-3 text-lg font-semibold tracking-tight">
-              Pin detail
-            </h2>
-            <ol className="space-y-2 text-sm">
+            <ul className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs md:grid-cols-3">
               {pins.map((p) => (
                 <li
                   key={p.id}
-                  className="flex items-baseline gap-3 border-b border-ink/5 pb-1.5"
+                  className="flex items-baseline gap-2 border-b border-ink/5 pb-1"
                 >
                   <span
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-paper text-xs font-semibold"
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-paper text-[10px] font-semibold"
                     style={{ background: p.color || DEFAULT_PIN_COLOR }}
                   >
                     {p.pin_number}
                   </span>
-                  <span className="flex-1">
-                    <span className="font-medium">{p.species_name}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="truncate font-medium">
+                      {p.species_name}
+                    </span>
                     {p.quantity > 1 ? (
-                      <span className="text-ink/60"> · ×{p.quantity}</span>
+                      <span className="text-ink/60"> ×{p.quantity}</span>
                     ) : null}
                     {p.description ? (
-                      <span className="block text-xs text-ink/60">
+                      <span className="block truncate text-[10px] text-ink/55">
                         {p.description}
                       </span>
                     ) : null}
                   </span>
                 </li>
               ))}
-            </ol>
+            </ul>
           </section>
         ) : null}
 
-        <footer className="mt-10 border-t border-ink/10 pt-4 text-xs text-ink/50">
-          Generated {formatLongDate(new Date().toISOString())} · zellin.ai
+        <footer className="mt-6 border-t border-ink/10 pt-2 text-[10px] text-ink/40">
+          Generated {formatLongDate(new Date().toISOString())} ·{" "}
+          {totals.totalPins} pins · {totals.totalTrees} trees · zellin.ai
         </footer>
       </article>
     </main>

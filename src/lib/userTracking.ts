@@ -9,18 +9,52 @@ export type UserPosition = {
   accuracy: number;
 };
 
+export type WatchOptions = {
+  // Drop updates that arrive within this many ms of the last emit, unless
+  // the accuracy improved meaningfully. Keeps the React tree from
+  // re-rendering once per second while the user stands still.
+  minIntervalMs?: number;
+  // Drop updates whose lat/lng moved less than this (meters) AND whose
+  // accuracy didn't get better.
+  minMoveM?: number;
+};
+
 export function watchUserPosition(
   onUpdate: (p: UserPosition) => void,
-  onError?: (err: GeolocationPositionError) => void
+  onError?: (err: GeolocationPositionError) => void,
+  opts: WatchOptions = {}
 ): () => void {
   if (!("geolocation" in navigator)) return () => {};
+  const minIntervalMs = opts.minIntervalMs ?? 1500;
+  const minMoveM = opts.minMoveM ?? 1.5;
+
+  let lastEmit = 0;
+  let lastPos: UserPosition | null = null;
+
   const id = navigator.geolocation.watchPosition(
     (pos) => {
-      onUpdate({
+      const next: UserPosition = {
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
-      });
+      };
+      const now = performance.now();
+      if (lastPos) {
+        const dt = now - lastEmit;
+        const dLat = (next.lat - lastPos.lat) * 111_000;
+        const dLng =
+          (next.lng - lastPos.lng) *
+          111_000 *
+          Math.cos((next.lat * Math.PI) / 180);
+        const distM = Math.sqrt(dLat * dLat + dLng * dLng);
+        const accImproved = next.accuracy < lastPos.accuracy - 5;
+        if (dt < minIntervalMs && distM < minMoveM && !accImproved) {
+          return;
+        }
+      }
+      lastEmit = now;
+      lastPos = next;
+      onUpdate(next);
     },
     (err) => onError?.(err),
     {

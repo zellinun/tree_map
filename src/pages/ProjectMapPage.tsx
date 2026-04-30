@@ -52,6 +52,19 @@ export default function ProjectMapPage() {
   const mapRef = useRef<MapHandle | null>(null);
   const headingStopRef = useRef<(() => void) | null>(null);
 
+  // Stable callback so MapView's memoized children don't see a new
+  // function reference on every parent re-render.
+  const onMapReady = useCallback((m: MapHandle) => {
+    mapRef.current = m;
+  }, []);
+
+  // Stable userMarker reference: only allocate a new object when the
+  // throttled position or heading actually changes.
+  const userMarkerProp = useMemo(
+    () => (userPos ? { ...userPos, heading } : null),
+    [userPos, heading]
+  );
+
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
     let active = true;
@@ -435,10 +448,8 @@ export default function ProjectMapPage() {
                 flyTo={flyTo}
                 fitToPins={fitTrigger > 0}
                 fitTrigger={fitTrigger}
-                onMapReady={(m) => {
-                  mapRef.current = m;
-                }}
-                userMarker={userPos ? { ...userPos, heading } : null}
+                onMapReady={onMapReady}
+                userMarker={userMarkerProp}
               />
             </div>
             {/* Crosshair is the "where will the next pin drop" indicator —

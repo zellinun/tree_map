@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { GoogleMap, useJsApiLoader, OverlayView } from "@react-google-maps/api";
 import type { TreePin } from "@/lib/types";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
@@ -35,7 +35,7 @@ type Props = {
   userMarker?: { lat: number; lng: number; heading: number | null } | null;
 };
 
-function PinMarker({
+const PinMarker = memo(function PinMarker({
   pin,
   size,
   onClick,
@@ -76,7 +76,7 @@ function PinMarker({
       </div>
     </OverlayView>
   );
-}
+});
 
 export default function MapView({
   pins,
@@ -191,7 +191,9 @@ export default function MapView({
         mapTypeId: "satellite",
         tilt: 0,
         disableDefaultUI: true,
-        zoomControl: interactive,
+        // Pinch-zoom and double-tap still work on touch; the on-screen
+        // controls would otherwise overlap the bottom-right + button.
+        zoomControl: false,
         gestureHandling: interactive ? "greedy" : "none",
         clickableIcons: false,
       }}
