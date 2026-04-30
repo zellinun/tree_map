@@ -6,14 +6,14 @@ import Header from "@/components/Header";
 import MapView from "@/components/MapView";
 import Crosshair from "@/components/Crosshair";
 import LocateMeButton from "@/components/LocateMeButton";
-import NewPinSpeedDial from "@/components/NewPinSpeedDial";
+import SpeciesPicker from "@/components/SpeciesPicker";
 import PinSheet, { type PinDraft } from "@/components/PinSheet";
 import PinList from "@/components/PinList";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin, PendingPin } from "@/lib/types";
 import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
-import { DEFAULT_PIN_COLOR, type PinPreset } from "@/lib/colors";
+import { DEFAULT_PIN_COLOR } from "@/lib/colors";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
 type View = "map" | "list";
@@ -32,6 +32,7 @@ export default function ProjectMapPage() {
   const [view, setView] = useState<View>("map");
 
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [activePin, setActivePin] = useState<TreePin | null>(null);
   const [draft, setDraft] = useState<PinDraft | null>(null);
   const [fitTrigger, setFitTrigger] = useState(0);
@@ -130,7 +131,7 @@ export default function ProjectMapPage() {
   }, [pins, pending]);
 
   const openDraft = useCallback(
-    (lat: number, lng: number, preset?: PinPreset) => {
+    (lat: number, lng: number, preset?: { species: string; color: string }) => {
       setActivePin(null);
       setDraft({
         pin_number: nextPinNumber,
@@ -148,21 +149,42 @@ export default function ProjectMapPage() {
     [nextPinNumber, lastColor]
   );
 
-  // Speed dial: drop a pin at the crosshair (= map center) with the
-  // chosen preset, then open the drawer to confirm.
-  const handlePresetPick = useCallback(
-    (preset: PinPreset) => {
+
+  // Species picker: open the modal
+  const handleOpenPicker = useCallback(() => {
+    setPickerOpen(true);
+  }, []);
+
+  // Species selected → drop pin at crosshair immediately (no sheet)
+  const handleSpeciesSelect = useCallback(
+    async (species: string) => {
       const m = mapRef.current;
-      if (!m) {
-        setError("Map not ready yet — try again in a second.");
-        return;
-      }
+      if (!m) return;
       const c = m.getCenter();
-      if (!c) { setError("Map not ready yet — try again in a second."); return; }
-      openDraft(c.lat, c.lng, preset);
+      if (!c) { setError("Map not ready — try again."); return; }
+      await saveDraftDirect({
+        pin_number: nextPinNumber,
+        latitude: c.lat,
+        longitude: c.lng,
+        species_name: species,
+        quantity: 1,
+        description: null,
+        color: DEFAULT_PIN_COLOR,
+      });
     },
-    [openDraft]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nextPinNumber]
   );
+
+  // "Add new" → open full PinSheet at crosshair
+  const handlePickerAddNew = useCallback(() => {
+    const m = mapRef.current;
+    if (!m) return;
+    const c = m.getCenter();
+    if (!c) return;
+    openDraft(c.lat, c.lng, { species: "", color: DEFAULT_PIN_COLOR });
+  }, [openDraft]);
+
 
   // "Locate me" button: use watchPosition to get the best reading.
   // Accept first reading under 30 m accuracy, or best after 5 s.
@@ -222,6 +244,37 @@ export default function ProjectMapPage() {
     setSheetOpen(true);
     setFlyTo([pin.latitude, pin.longitude]);
   }, []);
+
+  // Direct save — used by species picker (no sheet).
+  const saveDraftDirect = async (d: PinDraft) => {
+    const row = {
+      project_id: projectId,
+      pin_number: d.pin_number,
+      latitude: d.latitude,
+      longitude: d.longitude,
+      species_name: d.species_name,
+      quantity: d.quantity,
+      description: d.description,
+      color: d.color,
+      photos: [] as string[],
+    };
+    const { data, error: err } = await supabase
+      .from("tree_pins")
+      .insert(row)
+      .select()
+      .single();
+    if (err || !data) {
+      const clientId =
+        typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const pendingPin: PendingPin = { ...row, client_id: clientId, pending: true };
+      enqueuePin(projectId, pendingPin);
+      setPending((prev) => [...prev, pendingPin]);
+      return;
+    }
+    setPins((prev) => mergePins(prev, [data as TreePin]));
+  };
 
   const saveDraft = async (d: PinDraft) => {
     const row = {
@@ -394,7 +447,20 @@ export default function ProjectMapPage() {
             </div>
             {!sheetOpen && <Crosshair />}
             <LocateMeButton onClick={handleLocateMe} loading={locating} />
-            <NewPinSpeedDial onPick={handlePresetPick} />
+            <button
+                type="button"
+                onClick={handleOpenPicker}
+                className="absolute bottom-0 right-0 z-[1000] m-4 mb-[max(1rem,env(safe-area-inset-bottom))] flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-fg shadow-lg transition active:scale-95"
+                aria-label="Add a new pin"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <SpeciesPicker
+                open={pickerOpen}
+                onOpenChange={setPickerOpen}
+                onSelect={handleSpeciesSelect}
+                onAddNew={handlePickerAddNew}
+              />
           </>
         ) : (
           <div className="h-full overflow-y-auto pb-24">
