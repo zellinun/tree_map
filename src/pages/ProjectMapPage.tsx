@@ -6,14 +6,16 @@ import Header from "@/components/Header";
 import MapView from "@/components/MapView";
 import Crosshair from "@/components/Crosshair";
 import LocateMeButton from "@/components/LocateMeButton";
-import NewPinSpeedDial from "@/components/NewPinSpeedDial";
+import NewPinButton from "@/components/NewPinButton";
+import SpeciesPicker from "@/components/SpeciesPicker";
 import PinSheet, { type PinDraft } from "@/components/PinSheet";
 import PinList from "@/components/PinList";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin, PendingPin } from "@/lib/types";
 import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
-import { DEFAULT_PIN_COLOR, type PinPreset } from "@/lib/colors";
+import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import { colorForSpecies } from "@/lib/species";
 import { preciseLocate } from "@/lib/geolocation";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
@@ -37,8 +39,8 @@ export default function ProjectMapPage() {
   const [activePin, setActivePin] = useState<TreePin | null>(null);
   const [draft, setDraft] = useState<PinDraft | null>(null);
   const [fitTrigger, setFitTrigger] = useState(0);
-  const [lastColor, setLastColor] = useState<string>(DEFAULT_PIN_COLOR);
   const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const mapRef = useRef<L.Map | null>(null);
 
@@ -129,38 +131,60 @@ export default function ProjectMapPage() {
     );
   }, [pins, pending]);
 
-  const openDraft = useCallback(
-    (lat: number, lng: number, preset?: PinPreset) => {
-      setActivePin(null);
-      setDraft({
-        pin_number: nextPinNumber,
-        latitude: lat,
-        longitude: lng,
-        species_name: preset?.species ?? "",
-        quantity: 1,
-        description: null,
-        color: preset?.color ?? lastColor,
-      });
-      setSheetOpen(true);
-      // Don't flyTo — user just framed the crosshair where they want the pin;
-      // re-centering would feel like the map snapping away under them.
-    },
-    [nextPinNumber, lastColor]
-  );
-
-  // Speed dial: drop a pin at the crosshair (= map center) with the
-  // chosen preset, then open the drawer to confirm.
-  const handlePresetPick = useCallback(
-    (preset: PinPreset) => {
+  // 2-click flow: tap +, tap a species. The pin drops at the crosshair
+  // immediately; no edit drawer pops up. The user can tap the marker
+  // afterward to edit description/quantity/color if they want.
+  const insertPinAtCrosshair = useCallback(
+    async (species: string) => {
       const m = mapRef.current;
       if (!m) {
         setError("Map not ready yet — try again in a second.");
         return;
       }
       const c = m.getCenter();
-      openDraft(c.lat, c.lng, preset);
+      const color = colorForSpecies(species);
+      const row = {
+        project_id: projectId,
+        pin_number: nextPinNumber,
+        latitude: c.lat,
+        longitude: c.lng,
+        species_name: species,
+        quantity: 1,
+        description: null,
+        color,
+      };
+      const { data, error: err } = await supabase
+        .from("tree_pins")
+        .insert(row)
+        .select()
+        .single();
+      if (err || !data) {
+        // Offline queue fallback (mirrors saveDraft).
+        const clientId =
+          typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const pendingPin: PendingPin = {
+          ...row,
+          client_id: clientId,
+          pending: true,
+        };
+        enqueuePin(projectId, pendingPin);
+        setPending((prev) => [...prev, pendingPin]);
+        return;
+      }
+      setPins((prev) => mergePins(prev, [data as TreePin]));
     },
-    [openDraft]
+    [projectId, nextPinNumber]
+  );
+
+  const handlePickSpecies = useCallback(
+    (species: string) => {
+      setPickerOpen(false);
+      // Fire and forget — failures are queued offline.
+      void insertPinAtCrosshair(species);
+    },
+    [insertPinAtCrosshair]
   );
 
   // "Locate me" button: recenter the map on the user's current GPS position.
@@ -204,7 +228,6 @@ export default function ProjectMapPage() {
       description: d.description,
       color: d.color,
     };
-    setLastColor(d.color);
     const { data, error: err } = await supabase
       .from("tree_pins")
       .insert(row)
@@ -229,7 +252,6 @@ export default function ProjectMapPage() {
   };
 
   const updatePin = async (pinId: string, patch: Partial<TreePin>) => {
-    if (patch.color) setLastColor(patch.color);
     const { data, error: err } = await supabase
       .from("tree_pins")
       .update(patch)
@@ -395,7 +417,7 @@ export default function ProjectMapPage() {
               </div>
             ) : null}
             <LocateMeButton onClick={handleLocateMe} loading={locating} />
-            <NewPinSpeedDial onPick={handlePresetPick} />
+            <NewPinButton onClick={() => setPickerOpen(true)} />
           </>
         ) : (
           <div className="h-full overflow-y-auto pb-24">
@@ -412,6 +434,12 @@ export default function ProjectMapPage() {
         onSaveDraft={saveDraft}
         onUpdate={updatePin}
         onDelete={deletePin}
+      />
+
+      <SpeciesPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onPick={handlePickSpecies}
       />
     </main>
   );
