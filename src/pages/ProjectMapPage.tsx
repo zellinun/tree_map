@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FileText, List, Map as MapIcon, Maximize2 } from "lucide-react";
-import type { MapHandle } from "@/components/MapView";
+import type L from "leaflet";
 import Header from "@/components/Header";
 import MapView from "@/components/MapView";
 import Crosshair from "@/components/Crosshair";
 import LocateMeButton from "@/components/LocateMeButton";
+import NewPinButton from "@/components/NewPinButton";
 import SpeciesPicker from "@/components/SpeciesPicker";
 import PinSheet, { type PinDraft } from "@/components/PinSheet";
 import PinList from "@/components/PinList";
@@ -14,8 +15,11 @@ import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin, PendingPin } from "@/lib/types";
 import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import { colorForSpecies } from "@/lib/species";
+import { preciseLocate } from "@/lib/geolocation";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
+
 type View = "map" | "list";
 
 export default function ProjectMapPage() {
@@ -32,13 +36,13 @@ export default function ProjectMapPage() {
   const [view, setView] = useState<View>("map");
 
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [activePin, setActivePin] = useState<TreePin | null>(null);
   const [draft, setDraft] = useState<PinDraft | null>(null);
   const [fitTrigger, setFitTrigger] = useState(0);
-  const [lastColor, setLastColor] = useState<string>(DEFAULT_PIN_COLOR);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const mapRef = useRef<MapHandle | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
 
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
@@ -69,24 +73,22 @@ export default function ProjectMapPage() {
 
     // Always try to center on the user's actual location on entry.
     // MapContainer.center is only the *initial* value, so we drive movement
-    // through flyTo (handled by MapEvents inside MapView).
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (!active) return;
-          const here: [number, number] = [
-            pos.coords.latitude,
-            pos.coords.longitude,
-          ];
-          setCenter(here);
-          setFlyTo(here);
-        },
-        () => {
-          // permission denied / unavailable: stick with the fallback.
-        },
-        { enableHighAccuracy: true, maximumAge: 30_000, timeout: 15_000 }
-      );
-    }
+    // through flyTo (handled by MapEvents inside MapView). We use
+    // preciseLocate so we don't snap to a coarse cellular fix.
+    preciseLocate({ targetAccuracy: 25, maxWait: 12_000 })
+      .then((pos) => {
+        if (!active) return;
+        const here: [number, number] = [
+          pos.coords.latitude,
+          pos.coords.longitude,
+        ];
+        setCenter(here);
+        setFlyTo(here);
+        setAccuracy(pos.coords.accuracy);
+      })
+      .catch(() => {
+        // Permission denied / unavailable / timed out: stick with fallback.
+      });
     return () => {
       active = false;
     };
@@ -122,7 +124,6 @@ export default function ProjectMapPage() {
       quantity: p.quantity,
       description: p.description,
       color: p.color || DEFAULT_PIN_COLOR,
-      photos: [],
       created_at: new Date().toISOString(),
     }));
     return [...pins, ...pendingAsPins].sort(
@@ -130,111 +131,82 @@ export default function ProjectMapPage() {
     );
   }, [pins, pending]);
 
-  const openDraft = useCallback(
-    (lat: number, lng: number, preset?: { species: string; color: string }) => {
-      setActivePin(null);
-      setDraft({
-        pin_number: nextPinNumber,
-        latitude: lat,
-        longitude: lng,
-        species_name: preset?.species ?? "",
-        quantity: 1,
-        description: null,
-        color: preset?.color ?? lastColor,
-      });
-      setSheetOpen(true);
-      // Don't flyTo — user just framed the crosshair where they want the pin;
-      // re-centering would feel like the map snapping away under them.
-    },
-    [nextPinNumber, lastColor]
-  );
-
-
-  // Species picker: open the modal
-  const handleOpenPicker = useCallback(() => {
-    setPickerOpen(true);
-  }, []);
-
-  // Species selected → drop pin at crosshair immediately (no sheet)
-  const handleSpeciesSelect = useCallback(
+  // 2-click flow: tap +, tap a species. The pin drops at the crosshair
+  // immediately; no edit drawer pops up. The user can tap the marker
+  // afterward to edit description/quantity/color if they want.
+  const insertPinAtCrosshair = useCallback(
     async (species: string) => {
       const m = mapRef.current;
-      if (!m) return;
+      if (!m) {
+        setError("Map not ready yet — try again in a second.");
+        return;
+      }
       const c = m.getCenter();
-      if (!c) { setError("Map not ready — try again."); return; }
-      await saveDraftDirect({
+      const color = colorForSpecies(species);
+      const row = {
+        project_id: projectId,
         pin_number: nextPinNumber,
         latitude: c.lat,
         longitude: c.lng,
         species_name: species,
         quantity: 1,
         description: null,
-        color: DEFAULT_PIN_COLOR,
-      });
+        color,
+      };
+      const { data, error: err } = await supabase
+        .from("tree_pins")
+        .insert(row)
+        .select()
+        .single();
+      if (err || !data) {
+        // Offline queue fallback (mirrors saveDraft).
+        const clientId =
+          typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const pendingPin: PendingPin = {
+          ...row,
+          client_id: clientId,
+          pending: true,
+        };
+        enqueuePin(projectId, pendingPin);
+        setPending((prev) => [...prev, pendingPin]);
+        return;
+      }
+      setPins((prev) => mergePins(prev, [data as TreePin]));
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nextPinNumber]
+    [projectId, nextPinNumber]
   );
 
-  // "Add new" → open full PinSheet at crosshair
-  const handlePickerAddNew = useCallback(() => {
-    const m = mapRef.current;
-    if (!m) return;
-    const c = m.getCenter();
-    if (!c) return;
-    openDraft(c.lat, c.lng, { species: "", color: DEFAULT_PIN_COLOR });
-  }, [openDraft]);
+  const handlePickSpecies = useCallback(
+    (species: string) => {
+      setPickerOpen(false);
+      // Fire and forget — failures are queued offline.
+      void insertPinAtCrosshair(species);
+    },
+    [insertPinAtCrosshair]
+  );
 
-
-  // "Locate me" button: use watchPosition to get the best reading.
-  // Accept first reading under 30 m accuracy, or best after 5 s.
-  const handleLocateMe = useCallback(() => {
-    if (!navigator.geolocation) {
-      setError("Geolocation is not available in this browser.");
-      return;
-    }
+  // "Locate me" button: recenter the map on the user's current GPS position.
+  // Uses preciseLocate which watches GPS until accuracy settles or a timeout.
+  const handleLocateMe = useCallback(async () => {
     setLocating(true);
-
-    let best: GeolocationPosition | null = null;
-    let settled = false;
-
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      navigator.geolocation.clearWatch(watchId);
+    setAccuracy(null);
+    try {
+      const pos = await preciseLocate({
+        targetAccuracy: 15,
+        maxWait: 15_000,
+        onUpdate: (p) => setAccuracy(p.coords.accuracy),
+      });
+      setFlyTo([pos.coords.latitude, pos.coords.longitude]);
+      setAccuracy(pos.coords.accuracy);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not get current position.";
+      setError(message);
+    } finally {
       setLocating(false);
-      if (best) {
-        setFlyTo([best.coords.latitude, best.coords.longitude]);
-      } else {
-        setError("Could not get current position.");
-      }
-    };
-
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        if (settled) return;
-        if (!best || pos.coords.accuracy < best.coords.accuracy) {
-          best = pos;
-        }
-        if (pos.coords.accuracy <= 30) settle();
-      },
-      (err) => {
-        if (settled) return;
-        // If we already have a reading, use it; otherwise report error.
-        if (best) {
-          settle();
-        } else {
-          settled = true;
-          navigator.geolocation.clearWatch(watchId);
-          setLocating(false);
-          setError(err.message || "Could not get current position.");
-        }
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 }
-    );
-
-    // Fallback: after 5 s, use whatever we have.
-    setTimeout(settle, 5_000);
+    }
   }, []);
 
   const handleSelectPin = useCallback((pin: TreePin) => {
@@ -244,37 +216,6 @@ export default function ProjectMapPage() {
     setSheetOpen(true);
     setFlyTo([pin.latitude, pin.longitude]);
   }, []);
-
-  // Direct save — used by species picker (no sheet).
-  const saveDraftDirect = async (d: PinDraft) => {
-    const row = {
-      project_id: projectId,
-      pin_number: d.pin_number,
-      latitude: d.latitude,
-      longitude: d.longitude,
-      species_name: d.species_name,
-      quantity: d.quantity,
-      description: d.description,
-      color: d.color,
-      photos: [] as string[],
-    };
-    const { data, error: err } = await supabase
-      .from("tree_pins")
-      .insert(row)
-      .select()
-      .single();
-    if (err || !data) {
-      const clientId =
-        typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const pendingPin: PendingPin = { ...row, client_id: clientId, pending: true };
-      enqueuePin(projectId, pendingPin);
-      setPending((prev) => [...prev, pendingPin]);
-      return;
-    }
-    setPins((prev) => mergePins(prev, [data as TreePin]));
-  };
 
   const saveDraft = async (d: PinDraft) => {
     const row = {
@@ -286,9 +227,7 @@ export default function ProjectMapPage() {
       quantity: d.quantity,
       description: d.description,
       color: d.color,
-      photos: [],
     };
-    setLastColor(d.color);
     const { data, error: err } = await supabase
       .from("tree_pins")
       .insert(row)
@@ -313,7 +252,6 @@ export default function ProjectMapPage() {
   };
 
   const updatePin = async (pinId: string, patch: Partial<TreePin>) => {
-    if (patch.color) setLastColor(patch.color);
     const { data, error: err } = await supabase
       .from("tree_pins")
       .update(patch)
@@ -348,6 +286,13 @@ export default function ProjectMapPage() {
     }
     setPending(readQueue(projectId));
   };
+
+  // Auto-clear the accuracy chip a few seconds after it settles.
+  useEffect(() => {
+    if (accuracy === null || locating) return;
+    const t = setTimeout(() => setAccuracy(null), 6_000);
+    return () => clearTimeout(t);
+  }, [accuracy, locating]);
 
   // Best-effort retry when tab regains visibility / network reconnects.
   useEffect(() => {
@@ -445,22 +390,34 @@ export default function ProjectMapPage() {
                 }}
               />
             </div>
-            {!sheetOpen && <Crosshair />}
+            <Crosshair />
+            {accuracy !== null || locating ? (
+              <div className="pointer-events-none absolute left-1/2 top-3 z-[850] -translate-x-1/2">
+                <div
+                  className={
+                    "rounded-full border bg-paper/95 px-3 py-1 text-xs font-medium shadow-sm backdrop-blur " +
+                    (locating
+                      ? "border-ink/15 text-ink/70"
+                      : accuracy !== null && accuracy <= 25
+                      ? "border-accent/40 text-accent"
+                      : "border-amber-300 text-amber-700")
+                  }
+                >
+                  {locating
+                    ? accuracy !== null
+                      ? `Searching… ±${Math.round(accuracy)} m`
+                      : "Searching for GPS…"
+                    : `±${Math.round(accuracy ?? 0)} m`}
+                  {!locating && accuracy !== null && accuracy > 50 ? (
+                    <span className="ml-2 text-amber-700/80">
+                      step outside for a tighter fix
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <LocateMeButton onClick={handleLocateMe} loading={locating} />
-            <button
-                type="button"
-                onClick={handleOpenPicker}
-                className="absolute bottom-0 right-0 z-[1000] m-4 mb-[max(1rem,env(safe-area-inset-bottom))] flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-fg shadow-lg transition active:scale-95"
-                aria-label="Add a new pin"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </button>
-              <SpeciesPicker
-                open={pickerOpen}
-                onOpenChange={setPickerOpen}
-                onSelect={handleSpeciesSelect}
-                onAddNew={handlePickerAddNew}
-              />
+            <NewPinButton onClick={() => setPickerOpen(true)} />
           </>
         ) : (
           <div className="h-full overflow-y-auto pb-24">
@@ -477,6 +434,12 @@ export default function ProjectMapPage() {
         onSaveDraft={saveDraft}
         onUpdate={updatePin}
         onDelete={deletePin}
+      />
+
+      <SpeciesPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onPick={handlePickSpecies}
       />
     </main>
   );
