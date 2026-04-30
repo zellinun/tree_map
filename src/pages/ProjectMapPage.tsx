@@ -14,13 +14,9 @@ import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin, PendingPin } from "@/lib/types";
 import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
 import { DEFAULT_PIN_COLOR, type PinPreset } from "@/lib/colors";
+import { preciseLocate } from "@/lib/geolocation";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
-const PIN_HIGH_ACCURACY: PositionOptions = {
-  enableHighAccuracy: true,
-  maximumAge: 5_000,
-  timeout: 15_000,
-};
 
 type View = "map" | "list";
 
@@ -42,6 +38,7 @@ export default function ProjectMapPage() {
   const [draft, setDraft] = useState<PinDraft | null>(null);
   const [fitTrigger, setFitTrigger] = useState(0);
   const [lastColor, setLastColor] = useState<string>(DEFAULT_PIN_COLOR);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
 
   const mapRef = useRef<L.Map | null>(null);
 
@@ -74,24 +71,22 @@ export default function ProjectMapPage() {
 
     // Always try to center on the user's actual location on entry.
     // MapContainer.center is only the *initial* value, so we drive movement
-    // through flyTo (handled by MapEvents inside MapView).
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (!active) return;
-          const here: [number, number] = [
-            pos.coords.latitude,
-            pos.coords.longitude,
-          ];
-          setCenter(here);
-          setFlyTo(here);
-        },
-        () => {
-          // permission denied / unavailable: stick with the fallback.
-        },
-        { enableHighAccuracy: true, maximumAge: 30_000, timeout: 15_000 }
-      );
-    }
+    // through flyTo (handled by MapEvents inside MapView). We use
+    // preciseLocate so we don't snap to a coarse cellular fix.
+    preciseLocate({ targetAccuracy: 25, maxWait: 12_000 })
+      .then((pos) => {
+        if (!active) return;
+        const here: [number, number] = [
+          pos.coords.latitude,
+          pos.coords.longitude,
+        ];
+        setCenter(here);
+        setFlyTo(here);
+        setAccuracy(pos.coords.accuracy);
+      })
+      .catch(() => {
+        // Permission denied / unavailable / timed out: stick with fallback.
+      });
     return () => {
       active = false;
     };
@@ -169,23 +164,25 @@ export default function ProjectMapPage() {
   );
 
   // "Locate me" button: recenter the map on the user's current GPS position.
-  const handleLocateMe = useCallback(() => {
-    if (!navigator.geolocation) {
-      setError("Geolocation is not available in this browser.");
-      return;
-    }
+  // Uses preciseLocate which watches GPS until accuracy settles or a timeout.
+  const handleLocateMe = useCallback(async () => {
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocating(false);
-        setFlyTo([pos.coords.latitude, pos.coords.longitude]);
-      },
-      (err) => {
-        setLocating(false);
-        setError(err.message || "Could not get current position.");
-      },
-      PIN_HIGH_ACCURACY
-    );
+    setAccuracy(null);
+    try {
+      const pos = await preciseLocate({
+        targetAccuracy: 15,
+        maxWait: 15_000,
+        onUpdate: (p) => setAccuracy(p.coords.accuracy),
+      });
+      setFlyTo([pos.coords.latitude, pos.coords.longitude]);
+      setAccuracy(pos.coords.accuracy);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not get current position.";
+      setError(message);
+    } finally {
+      setLocating(false);
+    }
   }, []);
 
   const handleSelectPin = useCallback((pin: TreePin) => {
@@ -267,6 +264,13 @@ export default function ProjectMapPage() {
     }
     setPending(readQueue(projectId));
   };
+
+  // Auto-clear the accuracy chip a few seconds after it settles.
+  useEffect(() => {
+    if (accuracy === null || locating) return;
+    const t = setTimeout(() => setAccuracy(null), 6_000);
+    return () => clearTimeout(t);
+  }, [accuracy, locating]);
 
   // Best-effort retry when tab regains visibility / network reconnects.
   useEffect(() => {
@@ -365,6 +369,31 @@ export default function ProjectMapPage() {
               />
             </div>
             <Crosshair />
+            {accuracy !== null || locating ? (
+              <div className="pointer-events-none absolute left-1/2 top-3 z-[850] -translate-x-1/2">
+                <div
+                  className={
+                    "rounded-full border bg-paper/95 px-3 py-1 text-xs font-medium shadow-sm backdrop-blur " +
+                    (locating
+                      ? "border-ink/15 text-ink/70"
+                      : accuracy !== null && accuracy <= 25
+                      ? "border-accent/40 text-accent"
+                      : "border-amber-300 text-amber-700")
+                  }
+                >
+                  {locating
+                    ? accuracy !== null
+                      ? `Searching… ±${Math.round(accuracy)} m`
+                      : "Searching for GPS…"
+                    : `±${Math.round(accuracy ?? 0)} m`}
+                  {!locating && accuracy !== null && accuracy > 50 ? (
+                    <span className="ml-2 text-amber-700/80">
+                      step outside for a tighter fix
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <LocateMeButton onClick={handleLocateMe} loading={locating} />
             <NewPinSpeedDial onPick={handlePresetPick} />
           </>
