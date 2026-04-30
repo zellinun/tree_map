@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GoogleMap, useJsApiLoader, OverlayView } from "@react-google-maps/api";
 import type { TreePin } from "@/lib/types";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import UserMarker from "@/components/UserMarker";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string;
 
@@ -31,6 +32,7 @@ type Props = {
   fitTrigger?: number;
   interactive?: boolean;
   onMapReady?: (map: MapHandle) => void;
+  userMarker?: { lat: number; lng: number; heading: number | null } | null;
 };
 
 function PinMarker({
@@ -86,6 +88,7 @@ export default function MapView({
   fitTrigger,
   interactive = true,
   onMapReady,
+  userMarker,
 }: Props) {
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_KEY,
@@ -203,6 +206,13 @@ export default function MapView({
           onClick={onPinTap}
         />
       ))}
+      {userMarker ? (
+        <UserMarker
+          lat={userMarker.lat}
+          lng={userMarker.lng}
+          heading={userMarker.heading}
+        />
+      ) : null}
     </GoogleMap>
   );
 }

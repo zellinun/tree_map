@@ -54,6 +54,7 @@ export default function PinSheet({
   const [saving, setSaving] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -96,21 +97,35 @@ export default function PinSheet({
     const file = e.target.files?.[0];
     if (!file || !pinId) return;
     setUploading(true);
+    setPhotoError(null);
     try {
       const uuid = crypto.randomUUID();
-      const path = `${projectId}/${pinId}/${uuid}.jpg`;
+      // Preserve the file's actual extension; iOS often hands us HEIC/PNG
+      // and forcing a .jpg suffix breaks the content-type negotiation.
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const path = `${projectId}/${pinId}/${uuid}.${ext}`;
       const { error: uploadErr } = await supabase.storage
         .from("tree_photos")
-        .upload(path, file, { contentType: file.type });
+        .upload(path, file, {
+          contentType: file.type || "image/jpeg",
+          upsert: false,
+        });
       if (uploadErr) throw uploadErr;
       const { data: urlData } = supabase.storage
         .from("tree_photos")
         .getPublicUrl(path);
+      if (!urlData?.publicUrl) {
+        throw new Error("Could not resolve photo URL.");
+      }
       const newPhotos = [...photos, urlData.publicUrl];
       setPhotos(newPhotos);
       await onUpdate(pinId, { photos: newPhotos });
-    } catch {
-      // silently fail — user can retry
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Photo upload failed. Check your connection.";
+      setPhotoError(message);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -282,6 +297,21 @@ export default function PinSheet({
                 <Camera className="mr-1 h-4 w-4" />
                 {uploading ? "Uploading…" : "Add Photo"}
               </Button>
+              {photoError ? (
+                <p className="text-xs text-red-600">
+                  {photoError}
+                  {photoError.toLowerCase().includes("bucket") ||
+                  photoError.toLowerCase().includes("not found") ||
+                  photoError.toLowerCase().includes("policy") ? (
+                    <>
+                      {" "}
+                      — make sure the <code>tree_photos</code> Supabase
+                      Storage bucket exists and allows uploads from
+                      authenticated users.
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
             </div>
           )}
         </div>

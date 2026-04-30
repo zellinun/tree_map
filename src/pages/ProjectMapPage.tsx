@@ -16,6 +16,12 @@ import { enqueuePin, flushQueue, readQueue } from "@/lib/pinQueue";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
 import { colorForSpecies } from "@/lib/species";
 import { preciseLocate } from "@/lib/geolocation";
+import {
+  watchUserPosition,
+  watchHeading,
+  requestOrientationPermission,
+  type UserPosition,
+} from "@/lib/userTracking";
 
 const DEFAULT_CENTER: [number, number] = [37.9735, -122.5311]; // San Rafael, CA fallback
 
@@ -40,8 +46,11 @@ export default function ProjectMapPage() {
   const [fitTrigger, setFitTrigger] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [userPos, setUserPos] = useState<UserPosition | null>(null);
+  const [heading, setHeading] = useState<number | null>(null);
 
   const mapRef = useRef<MapHandle | null>(null);
+  const headingStopRef = useRef<(() => void) | null>(null);
 
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
@@ -92,6 +101,28 @@ export default function ProjectMapPage() {
       active = false;
     };
   }, [projectId]);
+
+  // Continuously track the user's position so the live "you are here" arrow
+  // updates as they walk. No iOS permission prompt is needed for geolocation
+  // beyond the initial grant; orientation is gated separately on the
+  // Locate Me tap because iOS requires a user gesture for that API.
+  useEffect(() => {
+    const stop = watchUserPosition(
+      (p) => setUserPos(p),
+      () => {
+        // Permission denied / unavailable: marker just stays hidden.
+      }
+    );
+    return stop;
+  }, []);
+
+  // Stop the heading listener on unmount.
+  useEffect(() => {
+    return () => {
+      headingStopRef.current?.();
+      headingStopRef.current = null;
+    };
+  }, []);
 
   // Try to flush any queued pins on mount.
   useEffect(() => {
@@ -194,9 +225,22 @@ export default function ProjectMapPage() {
 
   // "Locate me" button: recenter the map on the user's current GPS position.
   // Uses preciseLocate which watches GPS until accuracy settles or a timeout.
+  // Also opts into the device-orientation listener — this has to happen
+  // inside a user gesture on iOS (Safari requires it for the permission API).
   const handleLocateMe = useCallback(async () => {
     setLocating(true);
     setAccuracy(null);
+
+    // Request orientation permission alongside the locate. If granted,
+    // start the heading watcher — the live arrow will rotate as the user
+    // turns. Idempotent: if we've already started one, skip.
+    if (!headingStopRef.current) {
+      const granted = await requestOrientationPermission();
+      if (granted) {
+        headingStopRef.current = watchHeading(setHeading);
+      }
+    }
+
     try {
       const pos = await preciseLocate({
         targetAccuracy: 15,
@@ -394,9 +438,13 @@ export default function ProjectMapPage() {
                 onMapReady={(m) => {
                   mapRef.current = m;
                 }}
+                userMarker={userPos ? { ...userPos, heading } : null}
               />
             </div>
-            <Crosshair />
+            {/* Crosshair is the "where will the next pin drop" indicator —
+                hide it whenever a drawer is up so it doesn't overlap the
+                drawer content or the pin the user is editing. */}
+            {!sheetOpen && !pickerOpen ? <Crosshair /> : null}
             {accuracy !== null || locating ? (
               <div className="pointer-events-none absolute left-1/2 top-3 z-[850] -translate-x-1/2">
                 <div

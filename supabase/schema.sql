@@ -61,3 +61,37 @@ drop trigger if exists tree_projects_updated_at on tree_projects;
 create trigger tree_projects_updated_at
 before update on tree_projects
 for each row execute function set_updated_at();
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Storage bucket for pin photos. PinSheet uploads to this bucket via
+-- supabase.storage.from("tree_photos").upload(...) then stores the resulting
+-- public URL on tree_pins.photos. Run once; the inserts/policies are
+-- idempotent.
+
+insert into storage.buckets (id, name, public)
+values ('tree_photos', 'tree_photos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "tree_photos public read" on storage.objects;
+create policy "tree_photos public read"
+  on storage.objects for select
+  using (bucket_id = 'tree_photos');
+
+drop policy if exists "tree_photos auth upload" on storage.objects;
+create policy "tree_photos auth upload"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'tree_photos');
+
+drop policy if exists "tree_photos auth update" on storage.objects;
+create policy "tree_photos auth update"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'tree_photos')
+  with check (bucket_id = 'tree_photos');
+
+drop policy if exists "tree_photos auth delete" on storage.objects;
+create policy "tree_photos auth delete"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'tree_photos');
