@@ -36,6 +36,9 @@ const DrawerContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed inset-x-0 bottom-0 z-50 mt-24 flex flex-col rounded-t-2xl border border-ink/10 bg-paper",
+        // On tablet/desktop, constrain the width and center so the drawer
+        // doesn't span a 27" monitor edge-to-edge. Mobile stays full-width.
+        "sm:left-1/2 sm:right-auto sm:w-full sm:max-w-xl sm:-translate-x-1/2",
         "pb-[env(safe-area-inset-bottom)]",
         className
       )}

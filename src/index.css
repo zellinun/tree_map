@@ -36,6 +36,25 @@ textarea {
   background: #f4f4f5;
 }
 
+/* Google Places Autocomplete dropdown is portaled to <body>; lift it
+   above the floating map controls (max z-index in our app is 1000). */
+.pac-container {
+  z-index: 2000 !important;
+  border-radius: 12px;
+  border: 1px solid rgba(10, 10, 10, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  font-family: inherit;
+  margin-top: 4px;
+}
+.pac-item {
+  padding: 8px 12px;
+  font-size: 14px;
+  border-top: 1px solid rgba(10, 10, 10, 0.04);
+}
+.pac-item:first-child {
+  border-top: 0;
+}
+
 /* Speed dial fan-out animation */
 @keyframes fadeUp {
   from {

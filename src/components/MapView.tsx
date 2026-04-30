@@ -2,9 +2,11 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { GoogleMap, useJsApiLoader, OverlayView } from "@react-google-maps/api";
 import type { TreePin } from "@/lib/types";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import {
+  GOOGLE_MAPS_KEY,
+  GOOGLE_MAPS_LIBRARIES,
+} from "@/lib/googleMaps";
 import UserMarker from "@/components/UserMarker";
-
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string;
 
 const MAP_CONTAINER_STYLE = { width: "100%", height: "100%" };
 
@@ -92,6 +94,7 @@ export default function MapView({
 }: Props) {
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);

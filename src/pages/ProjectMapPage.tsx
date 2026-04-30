@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { FileText, List, Map as MapIcon, Maximize2 } from "lucide-react";
 import Header from "@/components/Header";
 import MapView, { type MapHandle } from "@/components/MapView";
+import AddressSearch from "@/components/AddressSearch";
 import Crosshair from "@/components/Crosshair";
 import LocateMeButton from "@/components/LocateMeButton";
 import NewPinButton from "@/components/NewPinButton";
@@ -385,31 +386,34 @@ export default function ProjectMapPage() {
                 size="sm"
                 onClick={() => setFitTrigger((t) => t + 1)}
                 title="Fit all pins"
+                aria-label="Fit all pins"
               >
                 <Maximize2 className="h-4 w-4" />
-                Fit all
+                <span className="hidden sm:inline">Fit all</span>
               </Button>
             ) : null}
             <Button
               variant={view === "map" ? "default" : "ghost"}
               size="sm"
               onClick={() => setView("map")}
+              aria-label="Map view"
             >
               <MapIcon className="h-4 w-4" />
-              Map
+              <span className="hidden sm:inline">Map</span>
             </Button>
             <Button
               variant={view === "list" ? "default" : "ghost"}
               size="sm"
               onClick={() => setView("list")}
+              aria-label="List view"
             >
               <List className="h-4 w-4" />
-              List
+              <span className="hidden sm:inline">List</span>
             </Button>
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline" size="sm" aria-label="Report">
               <Link to={`/p/${projectId}/report`}>
                 <FileText className="h-4 w-4" />
-                Report
+                <span className="hidden sm:inline">Report</span>
               </Link>
             </Button>
           </div>
@@ -456,8 +460,9 @@ export default function ProjectMapPage() {
                 hide it whenever a drawer is up so it doesn't overlap the
                 drawer content or the pin the user is editing. */}
             {!sheetOpen && !pickerOpen ? <Crosshair /> : null}
+            <AddressSearch onSelect={(p) => setFlyTo([p.lat, p.lng])} />
             {accuracy !== null || locating ? (
-              <div className="pointer-events-none absolute left-1/2 top-3 z-[850] -translate-x-1/2">
+              <div className="pointer-events-none absolute left-1/2 top-16 z-[850] -translate-x-1/2 sm:top-[68px]">
                 <div
                   className={
                     "rounded-full border bg-paper/95 px-3 py-1 text-xs font-medium shadow-sm backdrop-blur " +
