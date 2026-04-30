@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FileText, List, Map as MapIcon, Maximize2 } from "lucide-react";
-import type L from "leaflet";
 import Header from "@/components/Header";
-import MapView from "@/components/MapView";
+import MapView, { type MapHandle } from "@/components/MapView";
 import Crosshair from "@/components/Crosshair";
 import LocateMeButton from "@/components/LocateMeButton";
 import NewPinButton from "@/components/NewPinButton";
@@ -42,7 +41,7 @@ export default function ProjectMapPage() {
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<MapHandle | null>(null);
 
   // Load project + pins, plus any queued offline pins.
   useEffect(() => {
@@ -124,6 +123,7 @@ export default function ProjectMapPage() {
       quantity: p.quantity,
       description: p.description,
       color: p.color || DEFAULT_PIN_COLOR,
+      photos: p.photos ?? [],
       created_at: new Date().toISOString(),
     }));
     return [...pins, ...pendingAsPins].sort(
@@ -142,6 +142,10 @@ export default function ProjectMapPage() {
         return;
       }
       const c = m.getCenter();
+      if (!c) {
+        setError("Map center isn't available yet — try again in a second.");
+        return;
+      }
       const color = colorForSpecies(species);
       const row = {
         project_id: projectId,
@@ -152,6 +156,7 @@ export default function ProjectMapPage() {
         quantity: 1,
         description: null,
         color,
+        photos: [] as string[],
       };
       const { data, error: err } = await supabase
         .from("tree_pins")
@@ -227,6 +232,7 @@ export default function ProjectMapPage() {
       quantity: d.quantity,
       description: d.description,
       color: d.color,
+      photos: [] as string[],
     };
     const { data, error: err } = await supabase
       .from("tree_pins")
