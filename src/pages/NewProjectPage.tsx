@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { Autocomplete, useJsApiLoader } from "@react-google-maps/api";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,14 +8,41 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject } from "@/lib/types";
+import { GOOGLE_MAPS_KEY, GOOGLE_MAPS_LIBRARIES } from "@/lib/googleMaps";
 
 export default function NewProjectPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  // Captured when the user picks a Place suggestion. If they hand-type and
+  // never pick a suggestion, this stays null and the project just stores
+  // text — falls back to GPS / first-pin centering on map open.
+  const [latLng, setLatLng] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const acRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
+
+  const onAcLoad = (ac: google.maps.places.Autocomplete) => {
+    acRef.current = ac;
+  };
+
+  const onPlaceChanged = () => {
+    const place = acRef.current?.getPlace();
+    if (!place) return;
+    const loc = place.geometry?.location;
+    if (loc) setLatLng({ lat: loc.lat(), lng: loc.lng() });
+    if (place.formatted_address) setAddress(place.formatted_address);
+    else if (place.name) setAddress(place.name);
+  };
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -36,6 +64,8 @@ export default function NewProjectPage() {
         name: name.trim(),
         address: address.trim() || null,
         description: description.trim() || null,
+        latitude: latLng?.lat ?? null,
+        longitude: latLng?.lng ?? null,
       })
       .select()
       .single();
@@ -48,6 +78,26 @@ export default function NewProjectPage() {
     const project = data as TreeProject;
     navigate(`/p/${project.id}`, { replace: true });
   }
+
+  // The address field uses Google Places Autocomplete when the SDK is
+  // loaded; before that, it falls back to a plain input so the form
+  // is still functional offline.
+  const addressField = (
+    <Input
+      id="address"
+      placeholder="Start typing an address…"
+      value={address}
+      onChange={(e) => {
+        setAddress(e.target.value);
+        // If the user edits after picking, drop the captured coords;
+        // they're picking again or going free-form.
+        if (latLng) setLatLng(null);
+      }}
+      autoCapitalize="words"
+      autoCorrect="off"
+      spellCheck={false}
+    />
+  );
 
   return (
     <main className="min-h-screen bg-paper">
@@ -80,13 +130,29 @@ export default function NewProjectPage() {
 
         <div className="space-y-2">
           <Label htmlFor="address">Address</Label>
-          <Input
-            id="address"
-            placeholder="123 Oak Ln, San Rafael, CA"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            autoCapitalize="words"
-          />
+          {isLoaded ? (
+            <Autocomplete
+              onLoad={onAcLoad}
+              onPlaceChanged={onPlaceChanged}
+              options={{
+                fields: ["geometry.location", "formatted_address", "name"],
+                types: ["geocode"],
+              }}
+            >
+              {addressField}
+            </Autocomplete>
+          ) : (
+            addressField
+          )}
+          <p className="text-xs text-ink/50">
+            Pick a suggestion to save coordinates so the map opens centered
+            on the property.
+            {latLng ? (
+              <span className="ml-1 font-medium text-accent">
+                Address pinned ✓
+              </span>
+            ) : null}
+          </p>
         </div>
 
         <div className="space-y-2">

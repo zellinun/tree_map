@@ -4,6 +4,8 @@ export type TreeProject = {
   name: string;
   address: string | null;
   description: string | null;
+  latitude: number | null;
+  longitude: number | null;
   created_at: string;
   updated_at: string;
 };

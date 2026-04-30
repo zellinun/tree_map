@@ -67,8 +67,14 @@ export default function ProjectMapPage() {
   );
 
   // Load project + pins, plus any queued offline pins.
+  // Centering precedence (best → fallback):
+  //   1. First pin's lat/lng (an existing walk: show the work area)
+  //   2. Project's saved lat/lng (an Autocomplete'd address from the form)
+  //   3. preciseLocate GPS (user is on-site, no pins yet, no saved coords)
   useEffect(() => {
     let active = true;
+    let didCenterFromData = false;
+
     (async () => {
       const [{ data: pData, error: pErr }, { data: pinData, error: pinErr }] =
         await Promise.all([
@@ -82,31 +88,39 @@ export default function ProjectMapPage() {
       if (!active) return;
       if (pErr) setError(pErr.message);
       if (pinErr) setError(pinErr.message);
-      setProject((pData as TreeProject) ?? null);
+      const proj = (pData as TreeProject) ?? null;
+      setProject(proj);
       const list = (pinData as TreePin[]) ?? [];
       setPins(list);
       setPending(readQueue(projectId));
+
       if (list.length > 0) {
         const here: [number, number] = [list[0].latitude, list[0].longitude];
         setCenter(here);
         setFlyTo(here);
+        didCenterFromData = true;
+      } else if (proj && proj.latitude != null && proj.longitude != null) {
+        const here: [number, number] = [proj.latitude, proj.longitude];
+        setCenter(here);
+        setFlyTo(here);
+        didCenterFromData = true;
       }
     })();
 
-    // Always try to center on the user's actual location on entry.
-    // MapContainer.center is only the *initial* value, so we drive movement
-    // through flyTo (handled by MapEvents inside MapView). We use
-    // preciseLocate so we don't snap to a coarse cellular fix.
+    // Only fall back to GPS if neither pins nor a saved project address
+    // anchored the map. Otherwise the GPS resolve would yank the map
+    // away from the property they actually want to look at.
     preciseLocate({ targetAccuracy: 25, maxWait: 12_000 })
       .then((pos) => {
         if (!active) return;
+        setAccuracy(pos.coords.accuracy);
+        if (didCenterFromData) return;
         const here: [number, number] = [
           pos.coords.latitude,
           pos.coords.longitude,
         ];
         setCenter(here);
         setFlyTo(here);
-        setAccuracy(pos.coords.accuracy);
       })
       .catch(() => {
         // Permission denied / unavailable / timed out: stick with fallback.

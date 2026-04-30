@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import type { TreePin } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { DEFAULT_PIN_COLOR, PIN_COLORS } from "@/lib/colors";
+import { compressImage } from "@/lib/imageCompress";
 
 export type PinDraft = {
   pin_number: number;
@@ -99,18 +100,41 @@ export default function PinSheet({
     setUploading(true);
     setPhotoError(null);
     try {
+      // Compress before upload — iPhone photos are routinely 3-5 MB; this
+      // typically gets them under 400 KB and turns a 15s wait into a 2s one.
+      let blob: Blob = file;
+      try {
+        blob = await compressImage(file, {
+          maxWidth: 1600,
+          maxHeight: 1600,
+          quality: 0.85,
+        });
+      } catch (compressErr) {
+        // Compression failure is non-fatal — fall through with the
+        // original file so the user still gets a chance.
+        console.warn("Photo compression failed; uploading original.", compressErr);
+      }
+
       const uuid = crypto.randomUUID();
-      // Preserve the file's actual extension; iOS often hands us HEIC/PNG
-      // and forcing a .jpg suffix breaks the content-type negotiation.
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      // After compression the bytes are JPEG; use .jpg uniformly so the
+      // bucket sees a consistent content type.
+      const ext = blob === file
+        ? (file.name.split(".").pop() || "jpg").toLowerCase()
+        : "jpg";
       const path = `${projectId}/${pinId}/${uuid}.${ext}`;
+      const contentType =
+        blob === file ? file.type || "image/jpeg" : "image/jpeg";
       const { error: uploadErr } = await supabase.storage
         .from("tree_photos")
-        .upload(path, file, {
-          contentType: file.type || "image/jpeg",
+        .upload(path, blob, {
+          contentType,
           upsert: false,
         });
-      if (uploadErr) throw uploadErr;
+      if (uploadErr) {
+        // Surface the full Supabase error in the console for diagnosis.
+        console.error("Photo upload failed:", uploadErr);
+        throw uploadErr;
+      }
       const { data: urlData } = supabase.storage
         .from("tree_photos")
         .getPublicUrl(path);

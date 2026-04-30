@@ -7,12 +7,21 @@ create table if not exists tree_projects (
   name text not null,
   address text,
   description text,
+  latitude double precision,
+  longitude double precision,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists tree_projects_user_id_idx
   on tree_projects(user_id, created_at desc);
+
+-- Idempotent column adds for repos that ran an earlier version of this schema.
+alter table tree_projects
+  add column if not exists latitude double precision;
+
+alter table tree_projects
+  add column if not exists longitude double precision;
 
 create table if not exists tree_pins (
   id uuid primary key default gen_random_uuid(),
