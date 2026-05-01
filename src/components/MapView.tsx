@@ -59,6 +59,7 @@ const PinMarker = memo(function PinMarker({
       mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
     >
       <div
+        className="tree-pin"
         onClick={() => onClick?.(pin)}
         style={{
           transform: "translate(-50%, -50%)",
@@ -67,7 +68,10 @@ const PinMarker = memo(function PinMarker({
           borderRadius: "50%",
           background: color,
           // Heavier white ring + black hairline outline so pins stay
-          // crisp over both bright pavement and dark canopy.
+          // crisp over both bright pavement and dark canopy. The outline
+          // and shadows are stripped in @media print (see index.css)
+          // because Chrome rasterizes them as black squares in print
+          // preview.
           border: "3px solid #fff",
           outline: "1px solid rgba(0,0,0,0.55)",
           display: "flex",

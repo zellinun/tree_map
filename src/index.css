@@ -144,4 +144,17 @@ textarea {
     min-height: 6in !important;
     page-break-inside: avoid;
   }
+  /* Strip the screen-only legibility helpers from each map pin in
+     print. Chrome's print rasterizer can render `outline` and heavy
+     `box-shadow` as black squares around the circular pin, especially
+     when "Black and white" is selected in the print dialog. The white
+     border + the colored fill alone are enough on paper. Inline styles
+     are overridden via !important. */
+  .tree-pin {
+    outline: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    border-width: 1.5px !important;
+    transition: none !important;
+  }
 }
