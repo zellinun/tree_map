@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Printer, ArrowLeft, Trash2 } from "lucide-react";
+import { Printer, ArrowLeft, Trash2, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EditableText from "@/components/EditableText";
 import MapView from "@/components/MapView";
@@ -154,6 +154,10 @@ export default function ReportPage() {
   // (or tapping any other species' trash) clears the arm.
   const [confirming, setConfirming] = useState<string | null>(null);
 
+  // Bumped each time the user taps Reset view; MapView's fit-bounds
+  // effect re-runs on every increment.
+  const [fitTrigger, setFitTrigger] = useState(1);
+
   const deleteSpecies = async (species: string) => {
     const { error: err } = await supabase
       .from("tree_pins")
@@ -177,10 +181,23 @@ export default function ReportPage() {
             Back to map
           </Link>
         </Button>
-        <Button variant="accent" size="sm" onClick={handlePrint}>
-          <Printer className="h-4 w-4" />
-          Print / Save as PDF
-        </Button>
+        <div className="flex items-center gap-2">
+          {pins.length > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setFitTrigger((t) => t + 1)}
+              title="Re-frame the map to enclose every pin"
+            >
+              <Maximize2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Reset view</span>
+            </Button>
+          ) : null}
+          <Button variant="accent" size="sm" onClick={handlePrint}>
+            <Printer className="h-4 w-4" />
+            Print / Save as PDF
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -240,14 +257,16 @@ export default function ReportPage() {
                       center={mapCenter}
                       zoom={19}
                       fitToPins
-                      fitTrigger={1}
-                      interactive={false}
+                      fitTrigger={fitTrigger}
+                      interactive
                     />
                   </div>
                   <p className="no-print text-[10px] text-ink/45">
-                    Numbered, color-coded markers correspond to the species
-                    list. Allow a few seconds for satellite tiles to load
-                    before printing.
+                    Drag, pinch, or scroll to frame the map exactly how you
+                    want it. Tap{" "}
+                    <span className="font-medium">Reset view</span> to
+                    re-fit all pins. The map prints exactly as you leave
+                    it. Allow a few seconds for satellite tiles to load.
                   </p>
                 </>
               ) : (

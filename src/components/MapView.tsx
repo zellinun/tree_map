@@ -12,10 +12,14 @@ import UserMarker from "@/components/UserMarker";
 const MAP_CONTAINER_STYLE = { width: "100%", height: "100%" };
 
 function pinSizeForZoom(zoom: number): number {
-  if (zoom >= 19) return 18;
-  if (zoom >= 17) return 22;
-  if (zoom >= 15) return 26;
-  return 30;
+  // Smaller across the board so a property with hundreds of pins doesn't
+  // become a wall of overlapping dots in the report's fit-bounds view,
+  // while staying tap-able at street-level zooms on the live map.
+  if (zoom >= 20) return 18;
+  if (zoom >= 19) return 14;
+  if (zoom >= 17) return 11;
+  if (zoom >= 15) return 9;
+  return 7;
 }
 
 // Adapter so ProjectMapPage can call map.getCenter() / map.getZoom()
