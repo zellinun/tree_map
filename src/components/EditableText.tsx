@@ -15,8 +15,13 @@ type Props = {
   // For longer text — optional textarea variant.
   multiline?: boolean;
   // Suppress the hover edit affordance (useful in print where it would
-  // print as a stray icon if the browser ignored print:hidden).
+  // print as a stray icon if the browser ignored print:hidden, or in
+  // numeric cells where the pencil clutters the table).
   hideAffordance?: boolean;
+  // Underlying input type / inputMode hint. Use type="number" with
+  // inputMode="numeric" for whole-number cells so iOS shows the keypad.
+  type?: "text" | "number";
+  inputMode?: "text" | "numeric" | "decimal";
 };
 
 // Inline-editable text. Click the value to enter edit mode, type, then
@@ -31,6 +36,8 @@ export default function EditableText({
   allowEmpty = false,
   multiline = false,
   hideAffordance = false,
+  type = "text",
+  inputMode,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -105,7 +112,8 @@ export default function EditableText({
         ref={(el) => {
           inputRef.current = el;
         }}
-        type="text"
+        type={type}
+        inputMode={inputMode}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}

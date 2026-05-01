@@ -172,6 +172,72 @@ export default function ReportPage() {
     setConfirming(null);
   };
 
+  // Editing a species' Trees count rebalances pin quantities so the
+  // species sum equals the new total. Strategy: every pin of that
+  // species goes back to quantity 1, and whatever surplus is needed
+  // sits on the first pin (by pin_number). If the new total is below
+  // the pin count we can't shrink without deleting pins, so we surface
+  // an error rather than silently truncating.
+  const setSpeciesTreeCount = async (species: string, raw: string) => {
+    const next = Math.floor(Number(raw));
+    if (!Number.isFinite(next) || next < 1) return;
+
+    const speciesPins = pins
+      .filter((p) => p.species_name === species)
+      .sort((a, b) => a.pin_number - b.pin_number);
+    const pinCount = speciesPins.length;
+    if (pinCount === 0) return;
+
+    const currentTotal = speciesPins.reduce((s, p) => s + p.quantity, 0);
+    if (next === currentTotal) return;
+
+    if (next < pinCount) {
+      setError(
+        `${species} has ${pinCount} pin${pinCount > 1 ? "s" : ""} on the map. ` +
+          `Set the count to at least ${pinCount}, or delete pins first.`
+      );
+      return;
+    }
+
+    const firstPin = speciesPins[0];
+    const firstPinQty = next - (pinCount - 1);
+
+    // Update first pin's quantity to absorb the new total.
+    const { error: err1 } = await supabase
+      .from("tree_pins")
+      .update({ quantity: firstPinQty })
+      .eq("id", firstPin.id);
+    if (err1) {
+      setError(err1.message);
+      return;
+    }
+
+    // Reset every other pin of this species to quantity 1 (only those
+    // that aren't already at 1 — saves a no-op write on most projects).
+    const others = speciesPins.slice(1).filter((p) => p.quantity !== 1);
+    if (others.length > 0) {
+      const { error: err2 } = await supabase
+        .from("tree_pins")
+        .update({ quantity: 1 })
+        .in(
+          "id",
+          others.map((p) => p.id)
+        );
+      if (err2) {
+        setError(err2.message);
+        return;
+      }
+    }
+
+    setPins((prev) =>
+      prev.map((p) => {
+        if (p.species_name !== species) return p;
+        if (p.id === firstPin.id) return { ...p, quantity: firstPinQty };
+        return { ...p, quantity: 1 };
+      })
+    );
+  };
+
   return (
     <main className="min-h-screen bg-paper">
       <div className="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-ink/10 bg-paper/95 px-4 py-2 backdrop-blur">
@@ -381,7 +447,17 @@ export default function ReportPage() {
                                   {row.pin_count}
                                 </td>
                                 <td className="py-1.5 pr-1 text-right tabular-nums">
-                                  {row.tree_count}
+                                  <EditableText
+                                    value={String(row.tree_count)}
+                                    onSave={(v) =>
+                                      setSpeciesTreeCount(row.species_name, v)
+                                    }
+                                    type="number"
+                                    inputMode="numeric"
+                                    hideAffordance
+                                    className="-mx-1 inline-block px-1"
+                                    inputClassName="text-xs tabular-nums text-right w-12"
+                                  />
                                 </td>
                               </>
                             )}
