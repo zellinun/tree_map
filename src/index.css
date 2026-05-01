@@ -90,11 +90,12 @@ textarea {
   transition: transform 140ms ease;
 }
 
-/* Print styles for ReportPage. Letter LANDSCAPE so the map (left) and
-   summary table (right) sit side by side. Pin detail flows to page 2+. */
+/* Print styles for ReportPage. Letter PORTRAIT — matches the on-screen
+   vertical layout the user signs off on. The map fills its column, the
+   species summary fills the other; one page per report. */
 @media print {
   @page {
-    size: letter landscape;
+    size: letter portrait;
     margin: 0.4in;
   }
   html,
@@ -132,9 +133,6 @@ textarea {
   .report-page {
     page-break-inside: avoid;
   }
-  .report-page-break {
-    page-break-before: always;
-  }
   .report-map-wrap {
     display: flex !important;
     flex-direction: column !important;
@@ -143,18 +141,7 @@ textarea {
   .report-map {
     flex: 1 1 0% !important;
     height: auto !important;
-    min-height: 5.6in !important;
+    min-height: 6in !important;
     page-break-inside: avoid;
-  }
-  /* Multi-column pin list flows into 3 columns regardless of screen size,
-     keeping the printed sheet dense without sacrificing legibility. */
-  .report-page-break ul {
-    column-count: 3;
-    column-gap: 0.35in;
-    display: block !important;
-  }
-  .report-page-break ul > li {
-    break-inside: avoid;
-    display: flex;
   }
 }
