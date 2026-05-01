@@ -119,11 +119,15 @@ textarea {
     color: inherit;
     text-decoration: none;
   }
-  /* Force the two-column layout in print regardless of viewport width. */
+  /* Force the two-column layout in print regardless of viewport width.
+     items-stretch (default for grid) ensures both columns share the
+     row height — the map fills as tall as the species summary makes
+     the right column. */
   .report-body {
     display: grid !important;
     grid-template-columns: 1.6fr 1fr !important;
     gap: 0.3in !important;
+    align-items: stretch !important;
   }
   .report-page {
     page-break-inside: avoid;
@@ -131,8 +135,15 @@ textarea {
   .report-page-break {
     page-break-before: always;
   }
+  .report-map-wrap {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+  }
   .report-map {
-    height: 5.6in !important;
+    flex: 1 1 0% !important;
+    height: auto !important;
+    min-height: 5.6in !important;
     page-break-inside: avoid;
   }
   /* Multi-column pin list flows into 3 columns regardless of screen size,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Printer, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import EditableText from "@/components/EditableText";
 import MapView from "@/components/MapView";
 import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin } from "@/lib/types";
@@ -110,6 +111,44 @@ export default function ReportPage() {
     setTimeout(() => window.print(), 50);
   };
 
+  const updateProjectName = async (next: string) => {
+    if (!project) return;
+    const { data, error: err } = await supabase
+      .from("tree_projects")
+      .update({ name: next })
+      .eq("id", projectId)
+      .select()
+      .single();
+    if (err || !data) {
+      setError(err?.message ?? "Could not update title.");
+      return;
+    }
+    setProject(data as TreeProject);
+  };
+
+  // Renaming a species rewrites every pin in this project whose
+  // species_name matches the old label. The map markers, list view,
+  // and report tables all derive labels (and hash-based color) from
+  // pin.species_name, so a single batch update is enough to make the
+  // change visible everywhere.
+  const renameSpecies = async (oldName: string, newName: string) => {
+    if (oldName === newName) return;
+    const { error: err } = await supabase
+      .from("tree_pins")
+      .update({ species_name: newName })
+      .eq("project_id", projectId)
+      .eq("species_name", oldName);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setPins((prev) =>
+      prev.map((p) =>
+        p.species_name === oldName ? { ...p, species_name: newName } : p
+      )
+    );
+  };
+
   return (
     <main className="min-h-screen bg-paper">
       <div className="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-ink/10 bg-paper/95 px-4 py-2 backdrop-blur">
@@ -143,7 +182,13 @@ export default function ReportPage() {
                 Tree Inventory Report
               </div>
               <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">
-                {project?.name ?? "Property"}
+                <EditableText
+                  value={project?.name ?? "Property"}
+                  onSave={updateProjectName}
+                  className="-mx-1 px-1"
+                  inputClassName="text-2xl font-semibold tracking-tight"
+                  placeholder="Property name"
+                />
               </h1>
               {project?.address ? (
                 <p className="mt-0.5 truncate text-sm text-ink/70">
@@ -165,12 +210,12 @@ export default function ReportPage() {
           {/* Two-column body: map left, summary + species table right.
               On screen at narrow widths it stacks; print always shows
               side-by-side via the report-body grid utility class. */}
-          <div className="report-body grid grid-cols-1 gap-5 md:grid-cols-[1.6fr_1fr]">
+          <div className="report-body grid grid-cols-1 items-stretch gap-5 md:grid-cols-[1.6fr_1fr]">
             {/* Map */}
-            <div className="report-map-wrap">
+            <div className="report-map-wrap flex h-full flex-col gap-1">
               {pins.length > 0 ? (
                 <>
-                  <div className="report-map h-[5in] min-h-[320px] w-full overflow-hidden rounded-lg border border-ink/10">
+                  <div className="report-map relative w-full flex-1 min-h-[24rem] overflow-hidden rounded-lg border border-ink/10">
                     <MapView
                       pins={pins}
                       center={mapCenter}
@@ -180,14 +225,14 @@ export default function ReportPage() {
                       interactive={false}
                     />
                   </div>
-                  <p className="mt-1 text-[10px] text-ink/45">
+                  <p className="no-print text-[10px] text-ink/45">
                     Numbered, color-coded markers correspond to the species
                     list. Allow a few seconds for satellite tiles to load
                     before printing.
                   </p>
                 </>
               ) : (
-                <div className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-dashed border-ink/15 text-sm text-ink/50">
+                <div className="flex h-full min-h-[24rem] items-center justify-center rounded-lg border border-dashed border-ink/15 text-sm text-ink/50">
                   No pins recorded yet.
                 </div>
               )}
@@ -247,7 +292,14 @@ export default function ReportPage() {
                             />
                           </td>
                           <td className="py-1.5 pr-2 font-medium">
-                            {row.species_name}
+                            <EditableText
+                              value={row.species_name}
+                              onSave={(next) =>
+                                renameSpecies(row.species_name, next)
+                              }
+                              className="-mx-1 inline-block px-1"
+                              inputClassName="text-xs font-medium"
+                            />
                           </td>
                           <td className="py-1.5 pr-2 text-right tabular-nums">
                             {row.pin_count}
