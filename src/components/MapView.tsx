@@ -103,6 +103,12 @@ export default function MapView({
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
+  // The map instance also lives in state so effects that depend on it
+  // (flyTo, fitToPins) re-run once it's ready, regardless of whether the
+  // pins or the Maps SDK arrived first. Without this, a fit-bounds effect
+  // that depended on `mapRef.current` would silently bail when the report
+  // page mounted before pins finished loading.
+  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
   const prevFitTrigger = useRef<number | undefined>(undefined);
   const [pinSize, setPinSize] = useState(() => pinSizeForZoom(zoom));
   const [mapCenter] = useState<google.maps.LatLngLiteral>({
@@ -112,26 +118,42 @@ export default function MapView({
 
   // flyTo: pan + zoom when a pin is placed
   useEffect(() => {
-    if (flyTo && mapRef.current) {
-      mapRef.current.panTo({ lat: flyTo[0], lng: flyTo[1] });
-      const current = mapRef.current.getZoom() ?? zoom;
-      if (current < 19) mapRef.current.setZoom(19);
+    if (flyTo && mapInstance) {
+      mapInstance.panTo({ lat: flyTo[0], lng: flyTo[1] });
+      const current = mapInstance.getZoom() ?? zoom;
+      if (current < 19) mapInstance.setZoom(19);
     }
-  }, [flyTo, zoom]);
+  }, [flyTo, zoom, mapInstance]);
 
-  // fitTrigger: fit bounds to all pins when triggered
+  // fitTrigger: fit bounds to all pins when triggered. Defers the actual
+  // fitBounds call to the next animation frame so the map's container has
+  // its final dimensions (the report grid stretches to fit the species
+  // table — fitBounds called against a 0-height container would silently
+  // fall back to the initial zoom).
   useEffect(() => {
-    if (!fitToPins || pins.length === 0 || !mapRef.current) return;
+    const map = mapInstance;
+    if (!fitToPins || pins.length === 0 || !map) return;
     if (prevFitTrigger.current === fitTrigger && fitTrigger !== undefined) return;
     prevFitTrigger.current = fitTrigger;
+
     const bounds = new google.maps.LatLngBounds();
     pins.forEach((p) => bounds.extend({ lat: p.latitude, lng: p.longitude }));
-    mapRef.current.fitBounds(bounds, 40);
-  }, [fitTrigger, fitToPins, pins]);
+
+    const fit = () => map.fitBounds(bounds, 40);
+    const id = requestAnimationFrame(fit);
+    // Also fit on the first 'idle' so we get a clean zoom after Google
+    // has finished its own initial layout pass.
+    const idleHandle = google.maps.event.addListenerOnce(map, "idle", fit);
+    return () => {
+      cancelAnimationFrame(id);
+      google.maps.event.removeListener(idleHandle);
+    };
+  }, [fitTrigger, fitToPins, pins, mapInstance]);
 
   const onLoad = useCallback(
     (map: google.maps.Map) => {
       mapRef.current = map;
+      setMapInstance(map);
 
       // Zoom-responsive marker sizing
       map.addListener("zoom_changed", () => {
@@ -172,6 +194,7 @@ export default function MapView({
 
   const onUnmount = useCallback(() => {
     mapRef.current = null;
+    setMapInstance(null);
   }, []);
 
   if (loadError) {
