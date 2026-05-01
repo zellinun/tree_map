@@ -49,8 +49,9 @@ export const BUILT_IN_SPECIES: readonly string[] = Object.freeze(
 // Deterministic species → color. Hashes the species name to a hue in HSL
 // space (360 distinct hues vs. 8 palette slots) so the 41 built-in species
 // each render with a visually distinct color, stable across pins / projects
-// / sessions / devices. Saturation + lightness are fixed for legibility on
-// satellite imagery (mid-bright; same perceived weight everywhere).
+// / sessions / devices. Saturation + lightness are tuned for vivid
+// readability over satellite imagery — the previous 70%/45% washed out
+// against beige rooftops + bright pavement; 95%/50% pops.
 //
 // Hash collisions on hue are still possible (FNV → mod 360) but a 1-in-
 // roughly-360 collision rate is dramatically better than the old 1-in-8.
@@ -62,7 +63,18 @@ export function colorForSpecies(name: string): string {
     h = Math.imul(h, 16777619);
   }
   const hue = (h >>> 0) % 360;
-  return `hsl(${hue} 70% 45%)`;
+  return `hsl(${hue} 95% 50%)`;
+}
+
+// Resolve the color to render for a pin. If the stored color is in HSL
+// form (auto-generated from the species), recompute it through the
+// current colorForSpecies — that way bumps to the formula (e.g. brighter
+// saturation) propagate to all existing pins on the next render without
+// a DB migration. Hex colors are preserved as-is so manual overrides
+// from the 8-color palette picker stick.
+export function displayColor(color: string, speciesName: string): string {
+  if (color.startsWith("hsl")) return colorForSpecies(speciesName);
+  return color;
 }
 
 // PIN_COLORS is still exported for the manual override picker in PinSheet.

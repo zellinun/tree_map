@@ -74,8 +74,16 @@ for each row execute function set_updated_at();
 -- ──────────────────────────────────────────────────────────────────────────
 -- Storage bucket for pin photos. PinSheet uploads to this bucket via
 -- supabase.storage.from("tree_photos").upload(...) then stores the resulting
--- public URL on tree_pins.photos. Run once; the inserts/policies are
--- idempotent.
+-- public URL on tree_pins.photos.
+--
+-- IF the SQL bucket-create silently fails on your Supabase plan (it can,
+-- depending on tier and project age), use the dashboard instead:
+--   Supabase project → Storage → New bucket
+--     name:   tree_photos
+--     public: ON
+--     save
+-- Then run the four policies below — those still go through SQL on every
+-- plan. The inserts/policies are idempotent so re-running is safe.
 
 insert into storage.buckets (id, name, public)
 values ('tree_photos', 'tree_photos', true)
@@ -104,3 +112,18 @@ create policy "tree_photos auth delete"
   on storage.objects for delete
   to authenticated
   using (bucket_id = 'tree_photos');
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Tell PostgREST to refresh its schema cache so newly-added columns
+-- (e.g. tree_projects.latitude / .longitude) are immediately visible to
+-- the JS client. Without this, supabase-js can fail with
+-- "Could not find the 'latitude' column of 'tree_projects' in the schema cache"
+-- for up to a minute after the migration.
+notify pgrst, 'reload schema';
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Note on existing pin colors: the app renders pins with the
+-- brighter HSL scheme (hue 95% 50%) even for rows that were stored
+-- under the older 70%/45% scheme — see the `displayColor` helper in
+-- src/lib/species.ts which is invoked at render time. No SQL recolor
+-- migration is needed.

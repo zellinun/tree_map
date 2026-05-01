@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import type { TreeProject, TreePin } from "@/lib/types";
 import { formatLongDate } from "@/lib/utils";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import { displayColor } from "@/lib/species";
 
 type SpeciesRow = {
   species_name: string;
@@ -52,7 +53,7 @@ export default function ReportPage() {
     const map = new Map<string, SpeciesRow>();
     for (const p of pins) {
       const key = p.species_name.trim();
-      const color = p.color || DEFAULT_PIN_COLOR;
+      const color = displayColor(p.color || DEFAULT_PIN_COLOR, p.species_name);
       const row = map.get(key);
       if (row) {
         row.pin_count += 1;
@@ -76,7 +77,7 @@ export default function ReportPage() {
       const counts = new Map<string, number>();
       for (const p of pins) {
         if (p.species_name.trim() !== key) continue;
-        const c = p.color || DEFAULT_PIN_COLOR;
+        const c = displayColor(p.color || DEFAULT_PIN_COLOR, p.species_name);
         counts.set(c, (counts.get(c) ?? 0) + 1);
       }
       let best = row.dominant_color;
@@ -300,7 +301,12 @@ export default function ReportPage() {
                 >
                   <span
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-paper text-[10px] font-semibold"
-                    style={{ background: p.color || DEFAULT_PIN_COLOR }}
+                    style={{
+                      background: displayColor(
+                        p.color || DEFAULT_PIN_COLOR,
+                        p.species_name
+                      ),
+                    }}
                   >
                     {p.pin_number}
                   </span>

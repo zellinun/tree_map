@@ -322,19 +322,29 @@ export default function PinSheet({
                 {uploading ? "Uploading…" : "Add Photo"}
               </Button>
               {photoError ? (
-                <p className="text-xs text-red-600">
-                  {photoError}
+                <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                  <p className="font-medium">{photoError}</p>
                   {photoError.toLowerCase().includes("bucket") ||
-                  photoError.toLowerCase().includes("not found") ||
-                  photoError.toLowerCase().includes("policy") ? (
-                    <>
-                      {" "}
-                      — make sure the <code>tree_photos</code> Supabase
-                      Storage bucket exists and allows uploads from
-                      authenticated users.
-                    </>
+                  photoError.toLowerCase().includes("not found") ? (
+                    <p className="mt-1 text-red-700/85">
+                      Fix it once: open your Supabase project →{" "}
+                      <strong>Storage</strong> → <strong>New bucket</strong>{" "}
+                      → name <code>tree_photos</code> → toggle{" "}
+                      <strong>Public</strong> on → <strong>Save</strong>.
+                      Then refresh this page.
+                    </p>
+                  ) : photoError.toLowerCase().includes("policy") ||
+                    photoError
+                      .toLowerCase()
+                      .includes("violates row-level security") ? (
+                    <p className="mt-1 text-red-700/85">
+                      The bucket exists but isn&rsquo;t accepting uploads.
+                      In the Supabase SQL editor, re-run the storage
+                      policies block at the bottom of{" "}
+                      <code>supabase/schema.sql</code>.
+                    </p>
                   ) : null}
-                </p>
+                </div>
               ) : null}
             </div>
           )}

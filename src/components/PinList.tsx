@@ -2,6 +2,7 @@ import type { TreePin } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { TreePine } from "lucide-react";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import { displayColor } from "@/lib/species";
 
 type Props = {
   pins: TreePin[];
@@ -31,7 +32,12 @@ export default function PinList({ pins, onSelect }: Props) {
           >
             <span
               className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-paper text-xs font-semibold ring-2 ring-paper"
-              style={{ background: p.color || DEFAULT_PIN_COLOR }}
+              style={{
+                background: displayColor(
+                  p.color || DEFAULT_PIN_COLOR,
+                  p.species_name
+                ),
+              }}
             >
               {p.pin_number}
             </span>

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { GoogleMap, useJsApiLoader, OverlayView } from "@react-google-maps/api";
 import type { TreePin } from "@/lib/types";
 import { DEFAULT_PIN_COLOR } from "@/lib/colors";
+import { displayColor } from "@/lib/species";
 import {
   GOOGLE_MAPS_KEY,
   GOOGLE_MAPS_LIBRARIES,
@@ -46,7 +47,7 @@ const PinMarker = memo(function PinMarker({
   size: number;
   onClick?: (pin: TreePin) => void;
 }) {
-  const color = pin.color || DEFAULT_PIN_COLOR;
+  const color = displayColor(pin.color || DEFAULT_PIN_COLOR, pin.species_name);
   const fontSize = Math.round(size * 0.55);
   return (
     <OverlayView
@@ -61,15 +62,19 @@ const PinMarker = memo(function PinMarker({
           height: size,
           borderRadius: "50%",
           background: color,
-          border: "2px solid #fff",
+          // Heavier white ring + black hairline outline so pins stay
+          // crisp over both bright pavement and dark canopy.
+          border: "3px solid #fff",
+          outline: "1px solid rgba(0,0,0,0.55)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: "#fff",
           fontWeight: 700,
           fontSize,
+          textShadow: "0 1px 2px rgba(0,0,0,0.55)",
           cursor: onClick ? "pointer" : "default",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.5)",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.6)",
           userSelect: "none",
           transition: "width 0.15s, height 0.15s, font-size 0.15s",
         }}
