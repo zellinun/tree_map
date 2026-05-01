@@ -342,24 +342,14 @@ export default function ReportPage() {
               )}
             </div>
 
-            {/* Right column: totals + species summary */}
+            {/* Right column: total + species summary */}
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border border-ink/10 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-ink/50">
-                    Pins
-                  </div>
-                  <div className="mt-0.5 text-2xl font-semibold tabular-nums">
-                    {totals.totalPins}
-                  </div>
+              <div className="rounded-lg border border-ink/10 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-ink/50">
+                  Trees
                 </div>
-                <div className="rounded-lg border border-ink/10 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-ink/50">
-                    Trees
-                  </div>
-                  <div className="mt-0.5 text-2xl font-semibold tabular-nums">
-                    {totals.totalTrees}
-                  </div>
+                <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                  {totals.totalTrees}
                 </div>
               </div>
 
@@ -375,9 +365,6 @@ export default function ReportPage() {
                       <tr>
                         <th className="py-1.5 pr-2 font-medium"></th>
                         <th className="py-1.5 pr-2 font-medium">Species</th>
-                        <th className="py-1.5 pr-2 text-right font-medium">
-                          Pins
-                        </th>
                         <th className="py-1.5 pr-1 text-right font-medium">
                           Trees
                         </th>
@@ -403,7 +390,7 @@ export default function ReportPage() {
                             </td>
                             <td
                               className="py-1.5 pr-2 font-medium"
-                              colSpan={isConfirming ? 3 : 1}
+                              colSpan={isConfirming ? 2 : 1}
                             >
                               {isConfirming ? (
                                 <div className="no-print flex items-center justify-between gap-2">
@@ -442,24 +429,19 @@ export default function ReportPage() {
                               )}
                             </td>
                             {!isConfirming && (
-                              <>
-                                <td className="py-1.5 pr-2 text-right tabular-nums">
-                                  {row.pin_count}
-                                </td>
-                                <td className="py-1.5 pr-1 text-right tabular-nums">
-                                  <EditableText
-                                    value={String(row.tree_count)}
-                                    onSave={(v) =>
-                                      setSpeciesTreeCount(row.species_name, v)
-                                    }
-                                    type="number"
-                                    inputMode="numeric"
-                                    hideAffordance
-                                    className="-mx-1 inline-block px-1"
-                                    inputClassName="text-xs tabular-nums text-right w-12"
-                                  />
-                                </td>
-                              </>
+                              <td className="py-1.5 pr-1 text-right tabular-nums">
+                                <EditableText
+                                  value={String(row.tree_count)}
+                                  onSave={(v) =>
+                                    setSpeciesTreeCount(row.species_name, v)
+                                  }
+                                  type="number"
+                                  inputMode="numeric"
+                                  hideAffordance
+                                  className="-mx-1 inline-block px-1"
+                                  inputClassName="text-xs tabular-nums text-right w-12"
+                                />
+                              </td>
                             )}
                             <td className="no-print py-1.5 pl-1 text-right">
                               {!isConfirming ? (
@@ -499,7 +481,7 @@ export default function ReportPage() {
 
         <footer className="mt-6 border-t border-ink/10 pt-2 text-[10px] text-ink/40">
           Generated {formatLongDate(new Date().toISOString())} ·{" "}
-          {totals.totalPins} pins · {totals.totalTrees} trees · zellin.ai
+          {totals.totalTrees} trees · zellin.ai
         </footer>
       </article>
     </main>

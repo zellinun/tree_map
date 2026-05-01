@@ -157,4 +157,15 @@ textarea {
     border-width: 1.5px !important;
     transition: none !important;
   }
+  /* Hide the Google Maps attribution + "Report a map error" footer
+     strip on the printed report. (Note: keeping the attribution
+     visible on screen is required by Google's Maps Platform Terms of
+     Service — this hide is scoped to @media print only.) */
+  .report-map .gm-style-cc,
+  .report-map .gmnoprint,
+  .report-map a[href*="maps.google.com"],
+  .report-map a[href*="google.com/maps"],
+  .report-map [aria-label*="attribution" i] {
+    display: none !important;
+  }
 }
